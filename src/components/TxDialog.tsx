@@ -8,7 +8,7 @@ import { setState, uid, useStore, type Tx } from "@/lib/store";
 
 const sel = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
 
-export function TxDialog({ open, onOpenChange, tx }: { open: boolean; onOpenChange: (o: boolean) => void; tx?: Tx | null }) {
+export function TxDialog({ open, onOpenChange, tx }: { open: boolean; onOpenChange: (o: boolean) => void; tx?: Tx | null | undefined }) {
   const s = useStore();
   const empty = { description: "", amount: "", type: "despesa", date: new Date().toISOString().slice(0, 10), categoryId: s.categories[0]?.id ?? "", source: "b:" + (s.banks[0]?.id ?? "") };
   const [f, setF] = useState(empty);
@@ -18,9 +18,9 @@ export function TxDialog({ open, onOpenChange, tx }: { open: boolean; onOpenChan
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tx]);
 
-  const save = () => {
+  const save = (): void => {
     const amount = Math.round(parseFloat(f.amount.replace(/\./g, "").replace(",", ".")) * 100);
-    if (!f.description.trim() || !amount || amount <= 0) return toast.error("Preencha descrição e valor válidos");
+    if (!f.description.trim() || !amount || amount <= 0) { toast.error("Preencha descrição e valor válidos"); return; }
     const [k, id] = f.source.split(":");
     const data: Tx = { id: tx?.id ?? uid(), description: f.description.trim(), amount, type: f.type as Tx["type"], date: f.date, categoryId: f.categoryId, bankId: k === "b" ? id : undefined, cardId: k === "c" ? id : undefined, paid: tx?.paid };
     setState((st) => ({ ...st, txs: tx ? st.txs.map((t) => (t.id === tx.id ? data : t)) : [...st.txs, data] }));

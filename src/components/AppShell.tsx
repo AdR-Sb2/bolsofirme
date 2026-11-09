@@ -21,7 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [collapsed, setCollapsed] = useState(false);
   const [mobile, setMobile] = useState(false);
-  const [dlg, setDlg] = useState<{ open: boolean; tx?: Tx | null }>({ open: false });
+  const [dlg, setDlg] = useState<{ open: boolean; tx?: Tx | null | undefined }>({ open: false });
   const current = [...main, { to: "/configuracoes", label: "Configurações" }].find((i) => i.to === path)?.label ?? "";
 
   const NavItem = ({ to, label, icon: Icon }: { to: string; label: string; icon: typeof Home }) => (

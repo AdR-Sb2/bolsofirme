@@ -6,7 +6,7 @@ export interface Bank { id: string; name: string; color: string; kind: "Conta Co
 export interface CardC { id: string; name: string; bank: string; color: string; limit: number; closing: number; due: number }
 export interface Tx {
   id: string; description: string; amount: number; type: TxType; date: string;
-  categoryId: string; bankId?: string; cardId?: string; paid?: boolean;
+  categoryId: string; bankId?: string | undefined; cardId?: string | undefined; paid?: boolean | undefined;
 }
 export interface State { categories: Category[]; banks: Bank[]; cards: CardC[]; txs: Tx[] }
 
