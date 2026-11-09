@@ -101,13 +101,13 @@ function CardDialog({ open, onOpenChange, card }: { open: boolean; onOpenChange:
   const k = (card?.id ?? "new") + String(open);
   if (k !== key) { setKey(k); setF(card ?? blank); }
   const save = () => {
-    if (!f.name.trim()) return toast.error("Informe o nome");
+    if (!f.name.trim()) { toast.error("Informe o nome"); return; }
     setState((st) => ({ ...st, cards: card ? st.cards.map((c) => (c.id === card.id ? f : c)) : [...st.cards, { ...f, id: uid() }] }));
     toast.success("Cartão salvo"); onOpenChange(false);
   };
   const del = () => {
     if (!card) return;
-    if (s_hasTx(card.id)) return toast.error("Este cartão possui transações vinculadas e não pode ser excluído.");
+    if (s_hasTx(card.id)) { toast.error("Este cartão possui transações vinculadas e não pode ser excluído."); return; }
     if (!confirm("Excluir cartão?")) return;
     setState((st) => ({ ...st, cards: st.cards.filter((c) => c.id !== card.id) }));
     toast.success("Cartão excluído"); onOpenChange(false);

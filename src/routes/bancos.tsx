@@ -31,7 +31,7 @@ function Bancos() {
   const txCount = s.txs.filter((t) => t.bankId).length;
 
   const del = (b: Bank) => {
-    if (s.txs.some((t) => t.bankId === b.id)) return toast.error("Este banco possui transações vinculadas e não pode ser excluído.");
+    if (s.txs.some((t) => t.bankId === b.id)) { toast.error("Este banco possui transações vinculadas e não pode ser excluído."); return; }
     if (!confirm(`Excluir ${b.name}?`)) return;
     setState((st) => ({ ...st, banks: st.banks.filter((x) => x.id !== b.id) }));
     toast.success("Banco excluído");
@@ -78,7 +78,7 @@ function BankDialog({ open, onOpenChange, bank }: { open: boolean; onOpenChange:
   const k = (bank?.id ?? "new") + String(open);
   if (k !== key) { setKey(k); setF(bank ?? { id: "", name: "", color: "#3b82f6", kind: "Conta Corrente", initial: 0 }); }
   const save = () => {
-    if (!f.name.trim()) return toast.error("Informe o nome");
+    if (!f.name.trim()) { toast.error("Informe o nome"); return; }
     setState((st) => ({ ...st, banks: bank ? st.banks.map((b) => (b.id === bank.id ? f : b)) : [...st.banks, { ...f, id: uid() }] }));
     toast.success("Banco salvo"); onOpenChange(false);
   };

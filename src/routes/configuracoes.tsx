@@ -28,13 +28,13 @@ function Config() {
   const [name, setName] = useState(""); const [icon, setIcon] = useState("🏷️");
   const update = (id: string, patch: Record<string, string>) => setState((st) => ({ ...st, categories: st.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
   const del = (id: string) => {
-    if (s.txs.some((t) => t.categoryId === id)) return toast.error("Categoria em uso por transações.");
+    if (s.txs.some((t) => t.categoryId === id)) { toast.error("Categoria em uso por transações."); return; }
     if (!confirm("Excluir categoria?")) return;
     setState((st) => ({ ...st, categories: st.categories.filter((c) => c.id !== id) })); toast.success("Categoria excluída");
   };
   const add = () => {
     if (!name.trim()) return;
-    setState((st) => ({ ...st, categories: [...st.categories, { id: uid(), name: name.trim(), icon, color: PALETTE[st.categories.length % PALETTE.length] }] }));
+    setState((st) => ({ ...st, categories: [...st.categories, { id: uid(), name: name.trim(), icon, color: PALETTE[st.categories.length % PALETTE.length] as string }] }));
     setName(""); toast.success("Categoria criada");
   };
   const csv = () => {
