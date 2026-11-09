@@ -6,7 +6,7 @@ import { MonthPicker, PageTitle } from "@/components/AppShell";
 import { brl, monthKey, monthTotals, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/relatorios")({
+export const Route = createFileRoute("/_authenticated/relatorios")({
   head: () => ({
     meta: [
       { title: "Relatórios — BolsoFirme" },

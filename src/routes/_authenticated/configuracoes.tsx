@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { PageTitle } from "@/components/AppShell";
 import { PALETTE, setState, uid, useStore } from "@/lib/store";
 
-export const Route = createFileRoute("/configuracoes")({
+export const Route = createFileRoute("/_authenticated/configuracoes")({
   head: () => ({
     meta: [
       { title: "Configurações — BolsoFirme" },
