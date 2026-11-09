@@ -10,7 +10,7 @@ import { MonthPicker, PageTitle } from "@/components/AppShell";
 import { brl, cardUsed, fmtDate, setState, uid, useStore, type CardC } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/cartoes")({
+export const Route = createFileRoute("/_authenticated/cartoes")({
   head: () => ({
     meta: [
       { title: "Cartões de Crédito — BolsoFirme" },

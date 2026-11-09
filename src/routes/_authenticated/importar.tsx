@@ -7,7 +7,7 @@ import { PageTitle } from "@/components/AppShell";
 import { brl, setState, uid, useStore, type Tx } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/importar")({
+export const Route = createFileRoute("/_authenticated/importar")({
   head: () => ({
     meta: [
       { title: "Importar Excel — BolsoFirme" },

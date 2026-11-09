@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { PageTitle } from "@/components/AppShell";
 import { bankBalance, brl, monthKey, setState, uid, useStore, type Bank } from "@/lib/store";
 
-export const Route = createFileRoute("/bancos")({
+export const Route = createFileRoute("/_authenticated/bancos")({
   head: () => ({
     meta: [
       { title: "Bancos — BolsoFirme" },
@@ -60,7 +60,7 @@ function Bancos() {
             <div className="text-xl font-bold text-income">{brl(bankBalance(s, b.id))}</div>
             <div className="mt-2 flex justify-between text-sm"><span className="text-muted-foreground">Transações no Mês</span><span>{s.txs.filter((t) => t.bankId === b.id && t.date.startsWith(mk)).length}</span></div>
             <div className="mt-4 flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => nav({ to: "/" })}>Ver</Button>
+              <Button variant="outline" className="flex-1" onClick={() => nav({ to: "/transacoes" })}>Ver</Button>
               <Button variant="outline" size="icon" aria-label="Editar" onClick={() => { setEdit(b); setOpen(true); }}><Settings className="h-4 w-4" /></Button>
               <Button variant="outline" size="icon" aria-label="Excluir" onClick={() => del(b)}><Trash2 className="h-4 w-4 text-expense" /></Button>
             </div>

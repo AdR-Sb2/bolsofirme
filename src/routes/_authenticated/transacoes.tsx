@@ -6,7 +6,7 @@ import { MonthPicker, useTxDialog } from "@/components/AppShell";
 import { brl, fmtDate, monthKey, monthTotals, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_authenticated/transacoes")({
   head: () => ({
     meta: [
       { title: "Transações — BolsoFirme" },

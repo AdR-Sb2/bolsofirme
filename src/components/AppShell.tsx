@@ -7,7 +7,7 @@ import type { Tx } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const main = [
-  { to: "/", label: "Transações", icon: Home },
+  { to: "/transacoes", label: "Transações", icon: Home },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { to: "/bancos", label: "Bancos", icon: Building2 },
   { to: "/cartoes", label: "Cartões de Crédito", icon: CreditCard },

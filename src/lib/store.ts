@@ -22,25 +22,16 @@ function seed(): State {
   const categories = DEFAULT_CATS.map(([name, icon], i) => ({ id: uid(), name, icon, color: PALETTE[i % PALETTE.length] as string }));
   const cat = (n: string) => categories.find((c) => c.name === n)!.id;
   const banks: Bank[] = [
-    { id: "bb", name: "Banco do Brasil", color: "#eab308", kind: "Conta Corrente", initial: 0 },
-    { id: "nu", name: "Nubank", color: "#8b5cf6", kind: "Conta Digital", initial: 0 },
-    { id: "inter", name: "Inter", color: "#f97316", kind: "Conta Corrente", initial: 0 },
-    { id: "btg", name: "BTG Pactual", color: "#0f172a", kind: "Conta Investimento", initial: 0 },
+    { id: uid(), name: "Banco do Brasil", color: "#eab308", kind: "Conta Corrente", initial: 0 },
+    { id: uid(), name: "Nubank", color: "#8b5cf6", kind: "Conta Digital", initial: 0 },
+    { id: uid(), name: "Inter", color: "#f97316", kind: "Conta Corrente", initial: 0 },
+    { id: uid(), name: "BTG Pactual", color: "#0f172a", kind: "Conta Investimento", initial: 0 },
   ];
   const cards: CardC[] = [
-    { id: "k1", name: "Banco do Brasil - Visa", bank: "Banco do Brasil", color: "#eab308", limit: 400000, closing: 8, due: 12 },
-    { id: "k2", name: "Nubank - Mastercard", bank: "Nubank", color: "#8b5cf6", limit: 500000, closing: 15, due: 20 },
+    { id: uid(), name: "Banco do Brasil - Visa", bank: "Banco do Brasil", color: "#eab308", limit: 400000, closing: 8, due: 12 },
+    { id: uid(), name: "Nubank - Mastercard", bank: "Nubank", color: "#8b5cf6", limit: 500000, closing: 15, due: 20 },
   ];
-  const now = new Date(); const y = now.getFullYear(); const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = (day: number) => `${y}-${m}-${String(day).padStart(2, "0")}`;
-  const txs: Tx[] = [
-    { id: uid(), description: "Salário", amount: 250000, type: "receita", date: d(5), categoryId: cat("Salário"), bankId: "bb" },
-    { id: uid(), description: "Supermercado", amount: 12300, type: "despesa", date: d(7), categoryId: cat("Alimentação"), bankId: "nu" },
-    { id: uid(), description: "Combustível", amount: 8550, type: "despesa", date: d(9), categoryId: cat("Transporte"), bankId: "inter" },
-    { id: uid(), description: "Restaurante", amount: 12300, type: "despesa", date: d(3), categoryId: cat("Alimentação"), cardId: "k1" },
-    { id: uid(), description: "Notebook", amount: 145678, type: "despesa", date: d(10), categoryId: cat("Eletrônicos"), cardId: "k2" },
-  ];
-  return { categories, banks, cards, txs };
+  return { categories, banks, cards, txs: [] };
 }
 
 const empty: State = { categories: [], banks: [], cards: [], txs: [] };
