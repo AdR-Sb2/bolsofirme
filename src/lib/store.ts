@@ -20,7 +20,7 @@ const DEFAULT_CATS: [string, string][] = [
 ];
 
 function seed(): State {
-  const categories = DEFAULT_CATS.map(([name, icon], i) => ({ id: "c" + i, name, icon, color: PALETTE[i] }));
+  const categories = DEFAULT_CATS.map(([name, icon], i) => ({ id: "c" + i, name, icon, color: PALETTE[i % PALETTE.length] as string }));
   const cat = (n: string) => categories.find((c) => c.name === n)!.id;
   const banks: Bank[] = [
     { id: "bb", name: "Banco do Brasil", color: "#eab308", kind: "Conta Corrente", initial: 0 },
