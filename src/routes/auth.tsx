@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Wallet, Mail, Lock, Eye, EyeOff, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,7 +28,7 @@ function AuthPage() {
     return () => data.subscription.unsubscribe();
   }, [nav]);
 
-  const submitEmail = async (event: React.FormEvent<HTMLFormElement>) => {
+  const submitEmail = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!email.trim() || !password) { toast.error("Informe seu e-mail e sua senha."); return; }
     if (mode === "signup") {

@@ -54,7 +54,7 @@ function Bancos() {
         {s.banks.map((b) => (
           <div key={b.id} className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 font-semibold">{b.logo ? <img src={b.logo} alt="" className="h-7 w-7 rounded object-contain" onError={e=>{e.currentTarget.style.display="none";}} /> : <span className="h-3 w-3 rounded-full ring-1 ring-border" style={{ background: b.color }} />}{b.name}</div>
+              <div className="flex items-center gap-2 font-semibold">{b.logo ? <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-background"><img src={b.logo} alt={`Logo ${b.name}`} className="h-6 w-6 rounded object-contain" onError={e=>{e.currentTarget.style.display="none";const fallback=e.currentTarget.nextElementSibling as HTMLElement|null;if(fallback)fallback.style.display="block";}}/><span className="hidden h-2.5 w-2.5 rounded-full ring-1 ring-border" style={{background:b.color}}/></span> : <span className="h-3 w-3 rounded-full ring-1 ring-border" style={{ background: b.color }} />}{b.name}</div>
               <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{b.kind}</span>
             </div>
             <div className="mt-4 text-sm text-muted-foreground">Saldo Atual</div>
