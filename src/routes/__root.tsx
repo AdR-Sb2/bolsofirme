@@ -52,8 +52,13 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
           Esta página não carregou
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Ocorreu um erro inesperado. Você pode tentar novamente ou voltar ao início.
+          Ocorreu um erro ao abrir esta página. Tente novamente. Se o problema continuar, confira a conexão com o banco de dados e as configurações do projeto.
         </p>
+        {error instanceof Error && /supabase|environment variable|relation .* does not exist|permission denied/i.test(error.message) && (
+          <p className="mt-4 rounded-lg border border-border bg-muted/40 p-3 text-left text-xs text-muted-foreground">
+            Detalhe técnico: {error.message}
+          </p>
+        )}
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
             onClick={() => {
@@ -68,7 +73,7 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
             href="/"
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
-            Go home
+            Ir para o início
           </a>
         </div>
       </div>
