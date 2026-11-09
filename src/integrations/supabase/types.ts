@@ -14,7 +14,163 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      banks: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          initial_cents: number
+          kind: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          initial_cents?: number
+          kind?: string
+          name: string
+          user_id?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          initial_cents?: number
+          kind?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      cards: {
+        Row: {
+          bank: string
+          closing_day: number
+          color: string
+          created_at: string
+          due_day: number
+          id: string
+          limit_cents: number
+          name: string
+          user_id: string
+        }
+        Insert: {
+          bank?: string
+          closing_day?: number
+          color?: string
+          created_at?: string
+          due_day?: number
+          id?: string
+          limit_cents?: number
+          name: string
+          user_id?: string
+        }
+        Update: {
+          bank?: string
+          closing_day?: number
+          color?: string
+          created_at?: string
+          due_day?: number
+          id?: string
+          limit_cents?: number
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      categories: {
+        Row: {
+          color: string
+          created_at: string
+          icon: string
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          icon?: string
+          id?: string
+          name: string
+          user_id?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          icon?: string
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      transactions: {
+        Row: {
+          amount_cents: number
+          bank_id: string | null
+          card_id: string | null
+          category_id: string | null
+          created_at: string
+          date: string
+          description: string
+          id: string
+          paid: boolean
+          type: string
+          user_id: string
+        }
+        Insert: {
+          amount_cents: number
+          bank_id?: string | null
+          card_id?: string | null
+          category_id?: string | null
+          created_at?: string
+          date: string
+          description: string
+          id?: string
+          paid?: boolean
+          type: string
+          user_id?: string
+        }
+        Update: {
+          amount_cents?: number
+          bank_id?: string | null
+          card_id?: string | null
+          category_id?: string | null
+          created_at?: string
+          date?: string
+          description?: string
+          id?: string
+          paid?: boolean
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_bank_id_fkey"
+            columns: ["bank_id"]
+            isOneToOne: false
+            referencedRelation: "banks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
