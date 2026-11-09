@@ -74,7 +74,7 @@ function Importar() {
   const counts = { válida: 0, erro: 0, duplicada: 0 }; preview.forEach((p) => counts[p.status]++);
 
   const doImport = () => {
-    const news: Tx[] = preview.filter((p) => p.status === "válida").map((p) => ({ id: uid(), description: p.description, amount: Math.abs(p.amount!), type: p.amount! < 0 ? "despesa" : (p.cat?.name === "Salário" ? "receita" : "despesa"), date: p.date!, categoryId: p.cat.id, bankId: s.banks[0]?.id }));
+    const news: Tx[] = preview.filter((p) => p.status === "válida").map((p) => ({ id: uid(), description: p.description, amount: Math.abs(p.amount!), type: p.amount! < 0 ? "despesa" : (p.cat?.name === "Salário" ? "receita" : "despesa"), date: p.date!, categoryId: p.cat?.id ?? "", bankId: s.banks[0]?.id }));
     setState((st) => ({ ...st, txs: [...st.txs, ...news] }));
     setCount(news.length); setStep(3); toast.success(`${news.length} transações importadas`);
   };
