@@ -6,7 +6,7 @@ export interface Bank { id: string; name: string; color: string; kind: "Conta Co
 export interface CardC { id: string; name: string; bank: string; color: string; limit: number; closing: number; due: number }
 export interface Tx {
   id: string; description: string; amount: number; type: TxType; date: string;
-  categoryId: string; bankId?: string; cardId?: string; paid?: boolean;
+  categoryId: string; bankId?: string | undefined; cardId?: string | undefined; paid?: boolean | undefined;
 }
 export interface State { categories: Category[]; banks: Bank[]; cards: CardC[]; txs: Tx[] }
 
@@ -20,7 +20,7 @@ const DEFAULT_CATS: [string, string][] = [
 ];
 
 function seed(): State {
-  const categories = DEFAULT_CATS.map(([name, icon], i) => ({ id: "c" + i, name, icon, color: PALETTE[i] }));
+  const categories = DEFAULT_CATS.map(([name, icon], i) => ({ id: "c" + i, name, icon, color: PALETTE[i % PALETTE.length] as string }));
   const cat = (n: string) => categories.find((c) => c.name === n)!.id;
   const banks: Bank[] = [
     { id: "bb", name: "Banco do Brasil", color: "#eab308", kind: "Conta Corrente", initial: 0 },

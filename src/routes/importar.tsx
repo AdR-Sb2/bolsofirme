@@ -22,11 +22,13 @@ export const Route = createFileRoute("/importar")({
 const STEPS = ["Upload", "Mapeamento", "Prévia", "Concluído"];
 const FIELDS = [["date", "Data"], ["description", "Descrição"], ["amount", "Valor"], ["category", "Categoria"]] as const;
 type Row = Record<string, unknown>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyMap = any;
 
 function parseDate(v: unknown): string | null {
   if (typeof v === "number") { const d = new Date(Math.round((v - 25569) * 864e5)); return d.toISOString().slice(0, 10); }
   const s = String(v ?? "").trim();
-  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if (m) return `${m[3]}-${m[2]!.padStart(2, "0")}-${m[1]!.padStart(2, "0")}`;
   m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[0];
   return null;
 }
@@ -42,20 +44,20 @@ function Importar() {
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState<Row[]>([]);
   const [cols, setCols] = useState<string[]>([]);
-  const [map, setMap] = useState<Record<string, string>>({});
+  const [map, setMap] = useState<AnyMap>({});
   const [drag, setDrag] = useState(false);
   const [count, setCount] = useState(0);
 
   const handle = async (file?: File) => {
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) return toast.error("Arquivo maior que 10MB");
+    if (file.size > 10 * 1024 * 1024) { toast.error("Arquivo maior que 10MB"); return; }
     const XLSX = await import("xlsx");
     const wb = XLSX.read(await file.arrayBuffer());
-    const data = XLSX.utils.sheet_to_json<Row>(wb.Sheets[wb.SheetNames[0]]);
-    if (!data.length) return toast.error("Planilha vazia");
-    const c = Object.keys(data[0]);
+    const data = XLSX.utils.sheet_to_json<Row>(wb.Sheets[wb.SheetNames[0]!]!);
+    if (!data.length) { toast.error("Planilha vazia"); return; }
+    const c = Object.keys(data[0]!);
     setRows(data); setCols(c);
-    const guess: Record<string, string> = {};
+    const guess: AnyMap = {};
     FIELDS.forEach(([k, l]) => { const g = c.find((x) => x.toLowerCase().startsWith(l.toLowerCase().slice(0, 4))); if (g) guess[k] = g; });
     setMap(guess); setStep(1);
   };
@@ -72,7 +74,7 @@ function Importar() {
   const counts = { válida: 0, erro: 0, duplicada: 0 }; preview.forEach((p) => counts[p.status]++);
 
   const doImport = () => {
-    const news: Tx[] = preview.filter((p) => p.status === "válida").map((p) => ({ id: uid(), description: p.description, amount: Math.abs(p.amount!), type: p.amount! < 0 ? "despesa" : (p.cat?.name === "Salário" ? "receita" : "despesa"), date: p.date!, categoryId: p.cat.id, bankId: s.banks[0]?.id }));
+    const news: Tx[] = preview.filter((p) => p.status === "válida").map((p) => ({ id: uid(), description: p.description, amount: Math.abs(p.amount!), type: p.amount! < 0 ? "despesa" : (p.cat?.name === "Salário" ? "receita" : "despesa"), date: p.date!, categoryId: p.cat?.id ?? "", bankId: s.banks[0]?.id }));
     setState((st) => ({ ...st, txs: [...st.txs, ...news] }));
     setCount(news.length); setStep(3); toast.success(`${news.length} transações importadas`);
   };
