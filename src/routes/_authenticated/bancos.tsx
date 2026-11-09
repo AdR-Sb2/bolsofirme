@@ -21,6 +21,7 @@ export const Route = createFileRoute("/_authenticated/bancos")({
   component: Bancos,
 });
 
+const BANK_CATALOG=[{name:"Banco do Brasil",color:"#f5c400",logo:"https://logo.clearbit.com/bb.com.br"},{name:"Nubank",color:"#820ad1",logo:"https://logo.clearbit.com/nubank.com.br"},{name:"Itaú",color:"#ec7000",logo:"https://logo.clearbit.com/itau.com.br"},{name:"Bradesco",color:"#cc092f",logo:"https://logo.clearbit.com/bradesco.com.br"},{name:"Caixa",color:"#0066a1",logo:"https://logo.clearbit.com/caixa.gov.br"},{name:"Santander",color:"#ec0000",logo:"https://logo.clearbit.com/santander.com.br"},{name:"Banco Inter",color:"#ff7a00",logo:"https://logo.clearbit.com/inter.co"},{name:"C6 Bank",color:"#242424",logo:"https://logo.clearbit.com/c6bank.com.br"},{name:"BTG Pactual",color:"#003b5c",logo:"https://logo.clearbit.com/btgpactual.com"},{name:"Sicredi",color:"#3b7d23",logo:"https://logo.clearbit.com/sicredi.com.br"},{name:"Sicoob",color:"#009b63",logo:"https://logo.clearbit.com/sicoob.com.br"},{name:"PagBank",color:"#00a5e5",logo:"https://logo.clearbit.com/pagbank.com.br"},{name:"Mercado Pago",color:"#009ee3",logo:"https://logo.clearbit.com/mercadopago.com.br"},{name:"PicPay",color:"#21c25e",logo:"https://logo.clearbit.com/picpay.com"},{name:"Neon",color:"#00a5a8",logo:"https://logo.clearbit.com/neon.com.br"},{name:"Next",color:"#00c8b4",logo:"https://logo.clearbit.com/next.me"},{name:"Original",color:"#00a859",logo:"https://logo.clearbit.com/original.com.br"},{name:"Safra",color:"#a18a52",logo:"https://logo.clearbit.com/safra.com.br"},{name:"XP",color:"#111111",logo:"https://logo.clearbit.com/xpi.com.br"},{name:"Genial",color:"#00a99d",logo:"https://logo.clearbit.com/genialinvestimentos.com.br"},{name:"Modalmais",color:"#5b2c83",logo:"https://logo.clearbit.com/modalmais.com.br"},{name:"Daycoval",color:"#003b70",logo:"https://logo.clearbit.com/daycoval.com.br"},{name:"BMG",color:"#006b54",logo:"https://logo.clearbit.com/bancobmg.com.br"},{name:"BRB",color:"#0067a5",logo:"https://logo.clearbit.com/brb.com.br"},{name:"Banrisul",color:"#00529b",logo:"https://logo.clearbit.com/banrisul.com.br"},{name:"Banestes",color:"#00529b",logo:"https://logo.clearbit.com/banestes.com.br"},{name:"Banco Pan",color:"#ff6600",logo:"https://logo.clearbit.com/bancopan.com.br"},{name:"Will Bank",color:"#ffde00",logo:"https://logo.clearbit.com/willbank.com.br"},{name:"Stone",color:"#00a868",logo:"https://logo.clearbit.com/stone.com.br"},{name:"PagSeguro",color:"#00a5e5",logo:"https://logo.clearbit.com/pagseguro.uol.com.br"}] as const;
 function Bancos() {
   const s = useStore();
   const nav = useNavigate();
@@ -53,7 +54,7 @@ function Bancos() {
         {s.banks.map((b) => (
           <div key={b.id} className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 font-semibold"><span className="h-3 w-3 rounded-full ring-1 ring-border" style={{ background: b.color }} />{b.name}</div>
+              <div className="flex items-center gap-2 font-semibold">{b.logo ? <img src={b.logo} alt="" className="h-7 w-7 rounded object-contain" onError={e=>{e.currentTarget.style.display="none";}} /> : <span className="h-3 w-3 rounded-full ring-1 ring-border" style={{ background: b.color }} />}{b.name}</div>
               <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{b.kind}</span>
             </div>
             <div className="mt-4 text-sm text-muted-foreground">Saldo Atual</div>
@@ -73,10 +74,10 @@ function Bancos() {
 }
 
 function BankDialog({ open, onOpenChange, bank }: { open: boolean; onOpenChange: (o: boolean) => void; bank: Bank | null }) {
-  const [f, setF] = useState<Bank>({ id: "", name: "", color: "#3b82f6", kind: "Conta Corrente", initial: 0 });
+  const [f, setF] = useState<Bank>({ id: "", name: "", color: "#3b82f6", logo:"", kind: "Conta Corrente", initial: 0 });
   const [key, setKey] = useState("");
   const k = (bank?.id ?? "new") + String(open);
-  if (k !== key) { setKey(k); setF(bank ?? { id: "", name: "", color: "#3b82f6", kind: "Conta Corrente", initial: 0 }); }
+  if (k !== key) { setKey(k); setF(bank ?? { id: "", name: "", color: "#3b82f6", logo:"", kind: "Conta Corrente", initial: 0 }); }
   const save = () => {
     if (!f.name.trim()) { toast.error("Informe o nome"); return; }
     setState((st) => ({ ...st, banks: bank ? st.banks.map((b) => (b.id === bank.id ? f : b)) : [...st.banks, { ...f, id: uid() }] }));
@@ -87,7 +88,7 @@ function BankDialog({ open, onOpenChange, bank }: { open: boolean; onOpenChange:
       <DialogContent>
         <DialogHeader><DialogTitle>{bank ? "Editar Banco" : "Adicionar Banco"}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
-          <div><Label>Nome</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
+          <div><Label>Banco</Label><select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={f.name} onChange={(e) => { const x=BANK_CATALOG.find(b=>b.name===e.target.value); setF({...f,name:x?.name??e.target.value,color:x?.color??f.color,logo:x?.logo??""}); }}><option value="">Selecione um banco</option>{BANK_CATALOG.map(b=><option key={b.name} value={b.name}>{b.name}</option>)}</select></div>
           <div><Label>Tipo</Label>
             <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as Bank["kind"] })}>
               <option>Conta Corrente</option><option>Conta Digital</option><option>Conta Investimento</option>

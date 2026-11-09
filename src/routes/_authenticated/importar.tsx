@@ -19,7 +19,7 @@ export const Route = createFileRoute("/_authenticated/importar")({
   component: Importar,
 });
 
-const STEPS = ["Upload", "Mapeamento", "Prévia", "Concluído"];
+const STEPS = ["Arquivo", "Mapeamento", "Prévia", "Concluído"];
 const FIELDS = [["date", "Data"], ["description", "Descrição"], ["amount", "Valor"], ["category", "Categoria"]] as const;
 type Row = Record<string, unknown>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,7 +87,7 @@ function Importar() {
 
   return (
     <div>
-      <PageTitle title="Importação de Dados" sub="Importe suas transações a partir de arquivos Excel ou CSV" />
+      <PageTitle title="Importar dados" sub="Importe suas transações a partir de arquivos Excel ou CSV" />
       <div className="mb-6 flex flex-wrap items-center gap-3">
         {STEPS.map((l, i) => (
           <div key={l} className="flex items-center gap-2">
@@ -101,12 +101,12 @@ function Importar() {
       {step === 0 && (
         <div className="grid gap-5">
           <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="mb-4 font-semibold">Importar Transações</h3>
+            <h3 className="mb-4 font-semibold">Importar transações</h3>
             <div className="mb-4 flex items-center gap-2 rounded-lg border border-balance/40 bg-balance/10 p-3 text-sm"><Info className="h-4 w-4 text-balance" />Faça upload de um arquivo Excel (.xlsx ou .csv) com suas transações.</div>
             <div onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); handle(e.dataTransfer.files[0]); }}
               className={cn("grid place-items-center gap-2 rounded-xl border-2 border-dashed border-border p-10 text-center", drag && "border-primary bg-accent")}>
               <Upload className="h-10 w-10 text-muted-foreground" />
-              <div className="font-semibold">Arraste seu arquivo aqui</div>
+              <div className="font-semibold">Arraste seu arquivo até aqui</div>
               <div className="text-sm text-muted-foreground">ou clique no botão abaixo para selecionar</div>
               <Button className="mt-2" onClick={() => input.current?.click()}>Selecionar Arquivo</Button>
               <input ref={input} type="file" accept=".xlsx,.csv" hidden onChange={(e) => handle(e.target.files?.[0])} />

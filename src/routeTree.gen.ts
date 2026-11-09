@@ -18,6 +18,9 @@ import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authen
 import { Route as AuthenticatedImportarRouteImport } from './routes/_authenticated/importar'
 import { Route as AuthenticatedRelatoriosRouteImport } from './routes/_authenticated/relatorios'
 import { Route as AuthenticatedTransacoesRouteImport } from './routes/_authenticated/transacoes'
+import { Route as AuthenticatedInvestimentosRouteImport } from './routes/_authenticated/investimentos'
+import { Route as AuthenticatedConexoesRouteImport } from './routes/_authenticated/conexoes'
+import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -59,6 +62,9 @@ const AuthenticatedRelatoriosRoute = AuthenticatedRelatoriosRouteImport.update({
   path: '/relatorios',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedInvestimentosRoute = AuthenticatedInvestimentosRouteImport.update({ id: '/_authenticated/investimentos', path: '/investimentos', getParentRoute: () => AuthenticatedRouteRoute } as any)
+const AuthenticatedConexoesRoute = AuthenticatedConexoesRouteImport.update({ id: '/_authenticated/conexoes', path: '/conexoes', getParentRoute: () => AuthenticatedRouteRoute } as any)
+const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({ id: '/_authenticated/onboarding', path: '/onboarding', getParentRoute: () => AuthenticatedRouteRoute } as any)
 const AuthenticatedTransacoesRoute = AuthenticatedTransacoesRouteImport.update({
   id: '/transacoes',
   path: '/transacoes',
@@ -74,6 +80,9 @@ export interface FileRoutesByFullPath {
   '/importar': typeof AuthenticatedImportarRoute
   '/relatorios': typeof AuthenticatedRelatoriosRoute
   '/transacoes': typeof AuthenticatedTransacoesRoute
+  '/investimentos': typeof AuthenticatedInvestimentosRoute
+  '/conexoes': typeof AuthenticatedConexoesRoute
+  '/onboarding': typeof AuthenticatedOnboardingRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -84,6 +93,9 @@ export interface FileRoutesByTo {
   '/importar': typeof AuthenticatedImportarRoute
   '/relatorios': typeof AuthenticatedRelatoriosRoute
   '/transacoes': typeof AuthenticatedTransacoesRoute
+  '/investimentos': typeof AuthenticatedInvestimentosRoute
+  '/conexoes': typeof AuthenticatedConexoesRoute
+  '/onboarding': typeof AuthenticatedOnboardingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -96,6 +108,9 @@ export interface FileRoutesById {
   '/_authenticated/importar': typeof AuthenticatedImportarRoute
   '/_authenticated/relatorios': typeof AuthenticatedRelatoriosRoute
   '/_authenticated/transacoes': typeof AuthenticatedTransacoesRoute
+  '/_authenticated/investimentos': typeof AuthenticatedInvestimentosRoute
+  '/_authenticated/conexoes': typeof AuthenticatedConexoesRoute
+  '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -108,6 +123,9 @@ export interface FileRouteTypes {
     | '/importar'
     | '/relatorios'
     | '/transacoes'
+    | '/investimentos'
+    | '/conexoes'
+    | '/onboarding'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -118,6 +136,9 @@ export interface FileRouteTypes {
     | '/importar'
     | '/relatorios'
     | '/transacoes'
+    | '/investimentos'
+    | '/conexoes'
+    | '/onboarding'
   id:
     | '__root__'
     | '/'
@@ -129,6 +150,9 @@ export interface FileRouteTypes {
     | '/_authenticated/importar'
     | '/_authenticated/relatorios'
     | '/_authenticated/transacoes'
+    | '/_authenticated/investimentos'
+    | '/_authenticated/conexoes'
+    | '/_authenticated/onboarding'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -202,6 +226,9 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTransacoesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/investimentos': { id: '/_authenticated/investimentos'; path: '/investimentos'; fullPath: '/investimentos'; preLoaderRoute: typeof AuthenticatedInvestimentosRouteImport; parentRoute: typeof AuthenticatedRouteRoute }
+    '/_authenticated/conexoes': { id: '/_authenticated/conexoes'; path: '/conexoes'; fullPath: '/conexoes'; preLoaderRoute: typeof AuthenticatedConexoesRouteImport; parentRoute: typeof AuthenticatedRouteRoute }
+    '/_authenticated/onboarding': { id: '/_authenticated/onboarding'; path: '/onboarding'; fullPath: '/onboarding'; preLoaderRoute: typeof AuthenticatedOnboardingRouteImport; parentRoute: typeof AuthenticatedRouteRoute }
   }
 }
 
@@ -212,6 +239,9 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedImportarRoute: typeof AuthenticatedImportarRoute
   AuthenticatedRelatoriosRoute: typeof AuthenticatedRelatoriosRoute
   AuthenticatedTransacoesRoute: typeof AuthenticatedTransacoesRoute
+  AuthenticatedInvestimentosRoute: typeof AuthenticatedInvestimentosRoute
+  AuthenticatedConexoesRoute: typeof AuthenticatedConexoesRoute
+  AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -221,6 +251,9 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedImportarRoute: AuthenticatedImportarRoute,
   AuthenticatedRelatoriosRoute: AuthenticatedRelatoriosRoute,
   AuthenticatedTransacoesRoute: AuthenticatedTransacoesRoute,
+  AuthenticatedInvestimentosRoute: AuthenticatedInvestimentosRoute,
+  AuthenticatedConexoesRoute: AuthenticatedConexoesRoute,
+  AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

@@ -95,7 +95,7 @@ function InvoiceDialog({ card, onClose }: { card: CardC | null; onClose: () => v
 }
 
 function CardDialog({ open, onOpenChange, card }: { open: boolean; onOpenChange: (o: boolean) => void; card: CardC | null }) {
-  const blank: CardC = { id: "", name: "", bank: "", color: "#3b82f6", limit: 0, closing: 1, due: 10 };
+  const blank: CardC = { id: "", name: "", bank: "", brand: "Visa", color: "#3b82f6", limit: 0, closing: 1, due: 10 };
   const [f, setF] = useState(blank);
   const [key, setKey] = useState("");
   const k = (card?.id ?? "new") + String(open);
@@ -119,9 +119,10 @@ function CardDialog({ open, onOpenChange, card }: { open: boolean; onOpenChange:
       <DialogContent>
         <DialogHeader><DialogTitle>{card ? "Configurar Cartão" : "Adicionar Cartão"}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
-          <div><Label>Nome</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-          <div className="grid grid-cols-2 gap-2">
-            <div><Label>Banco</Label><Input value={f.bank} onChange={(e) => setF({ ...f, bank: e.target.value })} /></div>
+          <div><Label>Nome do cartão</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Ex.: Cartão principal" /></div>
+          <div className="grid grid-cols-3 gap-2">
+            <div><Label>Bandeira</Label><select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={f.brand ?? "Visa"} onChange={e=>setF({...f,brand:e.target.value})}>{["Visa","Mastercard","Elo","American Express","Hipercard"].map(x=><option key={x}>{x}</option>)}</select></div>
+            <div><Label>Banco</Label><select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={f.bank} onChange={(e) => {const b=s.banks.find(x=>x.name===e.target.value);setF({...f,bank:e.target.value,color:b?.color??f.color});}}><option value="">Selecione</option>{s.banks.map(b=><option key={b.id}>{b.name}</option>)}</select></div>
             <div><Label>Cor</Label><Input type="color" value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} /></div>
           </div>
           <div className="grid grid-cols-3 gap-2">

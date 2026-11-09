@@ -60,7 +60,7 @@ function Config() {
         </div>
       </section>
       <section className="rounded-xl border border-border bg-card p-5">
-        <h3 className="mb-2 font-semibold">Preferências</h3>
+        <h3 className="mb-2 font-semibold">Privacidade e conexões</h3><p className="mb-3 text-sm text-muted-foreground">Gerencie convites e escolha quais informações financeiras compartilha.</p><Button variant="outline" onClick={()=>window.location.assign("/conexoes")}>Gerenciar conexões e compartilhamento</Button><h3 className="mb-2 mt-5 font-semibold">Preferências</h3>
         <p className="text-sm text-muted-foreground">Tema: Escuro · Moeda: Real brasileiro (R$)</p>
       </section>
       <section className="rounded-xl border border-border bg-card p-5">
@@ -69,7 +69,7 @@ function Config() {
       </section>
       <section className="rounded-xl border border-border bg-card p-5">
         <h3 className="mb-2 font-semibold">Conta</h3>
-        <p className="text-sm text-muted-foreground">Seus dados estão salvos neste navegador. Login com email ainda não está ativo.</p>
+        <p className="text-sm text-muted-foreground">Sua conta está conectada com o Google. Seus dados financeiros ficam protegidos por usuário.</p>
       </section>
     </div>
   );

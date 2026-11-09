@@ -1,0 +1,35 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { PageTitle } from "@/components/AppShell";
+import { setState, uid, type Bank, type CardC } from "@/lib/store";
+
+export const Route = createFileRoute("/_authenticated/onboarding")({ component: Onboarding });
+const CATALOG = [
+ ["Banco do Brasil","#f5c400","https://logo.clearbit.com/bb.com.br"],["Nubank","#820ad1","https://logo.clearbit.com/nubank.com.br"],["Itaú","#ec7000","https://logo.clearbit.com/itau.com.br"],["Bradesco","#cc092f","https://logo.clearbit.com/bradesco.com.br"],["Caixa","#0066a1","https://logo.clearbit.com/caixa.gov.br"],["Santander","#ec0000","https://logo.clearbit.com/santander.com.br"],["Banco Inter","#ff7a00","https://logo.clearbit.com/inter.co"],["C6 Bank","#242424","https://logo.clearbit.com/c6bank.com.br"],["BTG Pactual","#003b5c","https://logo.clearbit.com/btgpactual.com"],["Sicredi","#3b7d23","https://logo.clearbit.com/sicredi.com.br"],["Sicoob","#009b63","https://logo.clearbit.com/sicoob.com.br"],["PagBank","#00a5e5","https://logo.clearbit.com/pagbank.com.br"],["Mercado Pago","#009ee3","https://logo.clearbit.com/mercadopago.com.br"],["PicPay","#21c25e","https://logo.clearbit.com/picpay.com"],["Neon","#00a5a8","https://logo.clearbit.com/neon.com.br"],["Next","#00c8b4","https://logo.clearbit.com/next.me"],["Original","#00a859","https://logo.clearbit.com/original.com.br"],["Safra","#a18a52","https://logo.clearbit.com/safra.com.br"],["XP","#111111","https://logo.clearbit.com/xpi.com.br"],["Genial","#00a99d","https://logo.clearbit.com/genialinvestimentos.com.br"],["Modalmais","#5b2c83","https://logo.clearbit.com/modalmais.com.br"],["Daycoval","#003b70","https://logo.clearbit.com/daycoval.com.br"],["BMG","#006b54","https://logo.clearbit.com/bancobmg.com.br"],["BRB","#0067a5","https://logo.clearbit.com/brb.com.br"],["Banrisul","#00529b","https://logo.clearbit.com/banrisul.com.br"],["Banestes","#00529b","https://logo.clearbit.com/banestes.com.br"],["Banco Pan","#ff6600","https://logo.clearbit.com/bancopan.com.br"],["Will Bank","#ffde00","https://logo.clearbit.com/willbank.com.br"],["iti Itaú","#ec7000","https://logo.clearbit.com/iti.itau"],["Stone","#00a868","https://logo.clearbit.com/stone.com.br"]
+] as const;
+function Onboarding() {
+ const nav=useNavigate(); const [selected,setSelected]=useState<string[]>([]); const [cards,setCards]=useState<{bank:string;brand:string;limit:string;closing:string;due:string}[]>([]);
+ const [saving,setSaving]=useState(false);
+ const toggle=(name:string)=>setSelected(v=>v.includes(name)?v.filter(x=>x!==name):[...v,name]);
+ const addCard=()=>setCards(v=>[...v,{bank:selected[0]??"",brand:"Visa",limit:"",closing:"",due:""}]);
+ const finish=async()=>{
+  if(!selected.length){toast.error("Selecione pelo menos um banco.");return;}
+  if(cards.some(c=>!c.bank||!c.limit||!c.closing||!c.due)){toast.error("Preencha os dados dos cartões ou remova os incompletos.");return;}
+  setSaving(true);const {data:{user}}=await supabase.auth.getUser();if(!user){setSaving(false);return;}
+  const banks:Bank[]=selected.map(name=>{const b=CATALOG.find(x=>x[0]===name)!;return{id:uid(),name,color:b[1],logo:b[2],kind:"Conta Corrente",initial:0};});
+  const bankInsert=banks.map(b=>({id:b.id,user_id:user.id,name:b.name,color:b.color,logo:b.logo,kind:b.kind,initial_cents:0}));
+  const cardInsert:CardC[]=cards.map(c=>({id:uid(),name:c.bank+" • "+c.brand,bank:c.bank,brand:c.brand,color:"#64748b",limit:Math.round(Number(c.limit)*100),closing:Number(c.closing),due:Number(c.due)}));
+  const db=supabase as any;
+  const [br,cr,sr]=await Promise.all([db.from("banks").insert(bankInsert),db.from("cards").insert(cardInsert.map(c=>({id:c.id,user_id:user.id,name:c.name,bank:c.bank,brand:c.brand,color:c.color,limit_cents:c.limit,closing_day:c.closing,due_day:c.due}))),db.from("user_settings").upsert({user_id:user.id,onboarding_complete:true,selected_banks:selected})]);
+  if(br.error||cr.error||sr.error){toast.error("Não foi possível salvar a configuração inicial. Verifique se a migração do banco foi aplicada.");setSaving(false);return;}
+  setState(st=>({...st,banks,cards:cardInsert}));toast.success("Sua carteira inicial está pronta!");nav({to:"/transacoes"});
+ };
+ return <div className="mx-auto max-w-4xl"><PageTitle title="Vamos configurar sua carteira" sub="Escolha os bancos que você utiliza. Você poderá alterar tudo depois."/>
+ <section className="mb-6 rounded-xl border border-border bg-card p-5"><div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">Seus bancos</h3><span className="text-sm text-muted-foreground">{selected.length} selecionados · mínimo 1</span></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">{CATALOG.map(([name,color,logo])=><button key={name} onClick={()=>toggle(name)} className={"flex items-center gap-2 rounded-lg border p-3 text-left text-sm "+(selected.includes(name)?"border-primary bg-primary/10":"border-border")}><img src={logo} alt="" className="h-7 w-7 rounded object-contain" onError={e=>{e.currentTarget.style.display="none";}}/><span className="h-3 w-3 rounded-full" style={{background:color}}/>{name}</button>)}</div></section>
+ <section className="mb-6 rounded-xl border border-border bg-card p-5"><div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">Cartões de crédito</h3><Button variant="outline" size="sm" onClick={addCard}>Adicionar cartão</Button></div>{cards.length===0?<p className="text-sm text-muted-foreground">Nenhum cartão adicionado. Você pode cadastrar depois.</p>:cards.map((c,i)=><div key={i} className="mb-3 grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-5"><select className="h-10 rounded-md border bg-background px-2" value={c.bank} onChange={e=>setCards(v=>v.map((x,j)=>j===i?{...x,bank:e.target.value}:x))}><option value="">Banco</option>{selected.map(b=><option key={b}>{b}</option>)}</select><select className="h-10 rounded-md border bg-background px-2" value={c.brand} onChange={e=>setCards(v=>v.map((x,j)=>j===i?{...x,brand:e.target.value}:x))}>{["Visa","Mastercard","Elo","American Express","Hipercard"].map(x=><option key={x}>{x}</option>)}</select><Input placeholder="Limite (R$)" type="number" value={c.limit} onChange={e=>setCards(v=>v.map((x,j)=>j===i?{...x,limit:e.target.value}:x))}/><Input placeholder="Fechamento" type="number" value={c.closing} onChange={e=>setCards(v=>v.map((x,j)=>j===i?{...x,closing:e.target.value}:x))}/><Input placeholder="Vencimento" type="number" value={c.due} onChange={e=>setCards(v=>v.map((x,j)=>j===i?{...x,due:e.target.value}:x))}/></div>)}</section>
+ <div className="flex justify-end"><Button disabled={saving||!selected.length} onClick={finish}>{saving?"Salvando...":"Concluir configuração"}</Button></div></div>;
+}
