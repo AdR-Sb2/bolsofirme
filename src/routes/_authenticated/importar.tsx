@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_authenticated/importar")({
       { name: "description", content: "Importe suas transações a partir de arquivos Excel ou CSV." },
       { property: "og:title", content: "Importar Excel — BolsoFirme" },
       { property: "og:description", content: "Importe suas transações a partir de arquivos Excel ou CSV." },
-    ],
+    { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }],
   }),
   component: Importar,
 });
