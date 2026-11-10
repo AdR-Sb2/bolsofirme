@@ -9,12 +9,14 @@ import {
   Wallet,
   Landmark,
   CalendarClock,
+  CircleHelp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MonthPicker, useTxDialog } from "@/components/AppShell";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { budgetStatus, getMonthlySpendingByCategory, type SpendingBudget } from "@/lib/planning";
 import {
@@ -250,7 +252,12 @@ function Transacoes() {
 
   const cards = [
     { label: "Total Entradas", value: income, cls: "text-income", Icon: TrendingUp },
-    { label: "Total Saídas (caixa)", value: expense + goalOutgoals, cls: "text-expense", Icon: TrendingDown },
+    {
+      label: "Total Saídas (caixa)",
+      value: expense + goalOutgoals,
+      cls: "text-expense",
+      Icon: TrendingDown,
+    },
     { label: "Saldo Final", value: balance, cls: "text-balance", Icon: Wallet },
     { label: "Patrimônio total", value: netWorth, cls: "text-balance", Icon: Landmark },
   ];
@@ -264,56 +271,67 @@ function Transacoes() {
           Filtros
         </Button>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(({ label, value, cls, Icon }) => (
-          <div key={label} className="rounded-xl border border-border bg-card p-5">
-            <div className="flex justify-between text-sm font-medium">
-              {label}
-              <Icon className={cn("h-4 w-4", cls)} />
-            </div>
-            <div className={cn("mt-6 text-[28px] font-bold", cls)}>
-              {label === "Patrimônio total" && assetsLoading ? (
-                <Skeleton className="h-8 w-36" />
-              ) : (
-                brl(value)
-              )}
-            </div>
-            <p className="-mt-2 text-xs text-muted-foreground">
-              Entradas usam o mês de referência; saídas consideram quando o pagamento ocorreu.
-              Compras no cartão aparecem nos gastos por categoria e só entram nas saídas ao pagar a
-              fatura.
-            </p>
-            {(overduePayables.length > 0 || nextWeekPayables.length > 0) && (
-              <Link
-                to="/a-pagar"
-                className="grid gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 sm:grid-cols-2"
-              >
-                <div className="flex items-center gap-3">
-                  <CalendarClock className="h-5 w-5 text-amber-600" />
-                  <div>
-                    <p className="font-medium">Contas vencidas</p>
-                    <p className="text-sm text-muted-foreground">
-                      {overduePayables.length} conta{overduePayables.length === 1 ? "" : "s"} ·{" "}
-                      {brl(
-                        overduePayables.reduce((sum, transaction) => sum + transaction.amount, 0),
-                      )}
-                    </p>
-                  </div>
+      <TooltipProvider>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {cards.map(({ label, value, cls, Icon }) => (
+            <div key={label} className="rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center justify-between text-sm font-medium">
+                <span>{label}</span>
+                <div className="flex items-center gap-2">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Entenda o cálculo de ${label}`}
+                        className="rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <CircleHelp className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-64">
+                      Entradas são agrupadas pelo mês de referência. Saídas entram no mês do
+                      pagamento; compras no cartão aparecem nos gastos por categoria, mas só entram
+                      em Total Saídas quando a fatura é paga.
+                    </TooltipContent>
+                  </Tooltip>
+                  <Icon className={cn("h-4 w-4", cls)} />
                 </div>
-                <div>
-                  <p className="font-medium">A pagar nos próximos 7 dias</p>
-                  <p className="text-sm text-muted-foreground">
-                    {nextWeekPayables.length} conta{nextWeekPayables.length === 1 ? "" : "s"} ·{" "}
-                    {brl(
-                      nextWeekPayables.reduce((sum, transaction) => sum + transaction.amount, 0),
-                    )}
-                  </p>
-                </div>
-              </Link>
-            )}
+              </div>
+              <div className={cn("mt-6 text-[28px] font-bold", cls)}>
+                {label === "Patrimônio total" && assetsLoading ? (
+                  <Skeleton className="h-8 w-36" />
+                ) : (
+                  brl(value)
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </TooltipProvider>
+      {(overduePayables.length > 0 || nextWeekPayables.length > 0) && (
+        <Link
+          to="/a-pagar"
+          className="grid gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 sm:grid-cols-2"
+        >
+          <div className="flex items-center gap-3">
+            <CalendarClock className="h-5 w-5 text-amber-600" />
+            <div>
+              <p className="font-medium">Contas vencidas</p>
+              <p className="text-sm text-muted-foreground">
+                {overduePayables.length} conta{overduePayables.length === 1 ? "" : "s"} ·{" "}
+                {brl(overduePayables.reduce((sum, transaction) => sum + transaction.amount, 0))}
+              </p>
+            </div>
           </div>
-        ))}
-      </div>
+          <div>
+            <p className="font-medium">A pagar nos próximos 7 dias</p>
+            <p className="text-sm text-muted-foreground">
+              {nextWeekPayables.length} conta{nextWeekPayables.length === 1 ? "" : "s"} ·{" "}
+              {brl(nextWeekPayables.reduce((sum, transaction) => sum + transaction.amount, 0))}
+            </p>
+          </div>
+        </Link>
+      )}
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="mb-1 flex items-center gap-2 font-medium">
           <TrendingUp className="h-4 w-4 text-primary" />
