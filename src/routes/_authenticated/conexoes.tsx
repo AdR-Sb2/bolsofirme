@@ -20,11 +20,10 @@ import { supabase } from "@/integrations/supabase/client";
 
 type Summary = {
   banks: number;
-  transactions: number;
   investments: number;
-  income: number;
-  expense: number;
-  assets: number;
+  bankStartingBalance: number;
+  investmentValue: number;
+  months: { key: string; label: string; income: number; expense: number }[];
 };
 type Profile = { user_id: string; display_name: string; avatar_url: string; created_at?: string };
 type Request = {
@@ -46,7 +45,13 @@ const emptyPermission: Permission = {
 };
 const money = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value / 100);
-function Person({ profile, size = "md" }: { profile?: Profile; size?: "sm" | "md" | "lg" }) {
+function Person({
+  profile,
+  size = "md",
+}: {
+  profile?: Profile | undefined;
+  size?: "sm" | "md" | "lg";
+}) {
   const dimension =
     size === "lg" ? "h-16 w-16 text-lg" : size === "sm" ? "h-9 w-9 text-xs" : "h-12 w-12 text-sm";
   const initials = (profile?.display_name || "BF")
@@ -86,6 +91,7 @@ function Conexoes() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [requests, setRequests] = useState<Request[]>([]);
   const [permissions, setPermissions] = useState<Record<string, Permission>>({});
+  const [incomingPermissions, setIncomingPermissions] = useState<Record<string, Permission>>({});
   const [query, setQuery] = useState("");
   const [shared, setShared] = useState<Record<string, Summary>>({});
   const [loading, setLoading] = useState(true);
@@ -103,7 +109,7 @@ function Conexoes() {
       return;
     }
     setMe(user.id);
-    const [p, r, perms] = await Promise.all([
+    const [p, r, perms, incomingPerms] = await Promise.all([
       supabase
         .from("user_profiles")
         .select("user_id,display_name,avatar_url,created_at")
@@ -115,8 +121,9 @@ function Conexoes() {
         .or("sender_id.eq." + user.id + ",recipient_id.eq." + user.id)
         .order("created_at", { ascending: false }),
       supabase.from("connection_permissions").select("*").eq("owner_id", user.id),
+      supabase.from("connection_permissions").select("*").eq("viewer_id", user.id),
     ]);
-    if (p.error || r.error) {
+    if (p.error || r.error || perms.error || incomingPerms.error) {
       toast.error(
         "Não foi possível carregar as conexões. Verifique se a migração de conexões foi aplicada.",
       );
@@ -131,36 +138,78 @@ function Conexoes() {
         (perms.data ?? []).map((permission) => [permission.viewer_id, permission]),
       ),
     );
+    setIncomingPermissions(
+      Object.fromEntries(
+        (incomingPerms.data ?? []).map((permission) => [permission.owner_id, permission]),
+      ),
+    );
     const acceptedIds = rows
       .filter((x) => x.status === "accepted")
       .map((x) => (x.sender_id === user.id ? x.recipient_id : x.sender_id));
+    const now = new Date();
+    const monthTemplate = Array.from({ length: 6 }, (_, index) => {
+      const month = new Date(now.getFullYear(), now.getMonth() - 5 + index, 1);
+      const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
+      return {
+        key,
+        label: month.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""),
+        income: 0,
+        expense: 0,
+      };
+    });
+    const firstMonth = monthTemplate[0]?.key;
     const summaries = await Promise.all(
       acceptedIds.map(async (ownerId) => {
+        const months = monthTemplate.map((month) => ({ ...month }));
+        const sharedWithMe = (incomingPerms.data ?? []).find(
+          (permission) => permission.owner_id === ownerId,
+        );
         const [banks, transactions, investments] = await Promise.all([
-          supabase
-            .from("banks")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", ownerId),
-          supabase.from("transactions").select("amount_cents,type").eq("user_id", ownerId),
-          supabase
-            .from("investments")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", ownerId),
+          sharedWithMe?.share_balances
+            ? supabase.from("banks").select("id,initial_cents").eq("user_id", ownerId)
+            : Promise.resolve({ data: [], error: null }),
+          sharedWithMe?.share_transactions && firstMonth
+            ? supabase
+                .from("transactions")
+                .select("amount_cents,type,date")
+                .eq("user_id", ownerId)
+                .gte("date", `${firstMonth}-01`)
+            : Promise.resolve({ data: [], error: null }),
+          sharedWithMe?.share_investments
+            ? supabase
+                .from("investments")
+                .select("quantity,current_price_cents")
+                .eq("user_id", ownerId)
+            : Promise.resolve({ data: [], error: null }),
         ]);
-        const txs = transactions.data ?? [];
+        for (const error of [banks.error, transactions.error, investments.error]) {
+          if (error) {
+            console.error("[Connections] Failed to load shared financial summary.", error);
+            toast.error("Não foi possível carregar alguns dados compartilhados.");
+          }
+        }
+        const monthByKey = new Map(months.map((month) => [month.key, month]));
+        for (const transaction of transactions.data ?? []) {
+          const month = monthByKey.get(transaction.date.slice(0, 7));
+          if (!month) continue;
+          if (transaction.type === "receita") month.income += Number(transaction.amount_cents);
+          if (transaction.type === "despesa") month.expense += Number(transaction.amount_cents);
+        }
         return [
           ownerId,
           {
-            banks: banks.count ?? 0,
-            transactions: transactions.count ?? txs.length,
-            investments: investments.count ?? 0,
-            income: txs
-              .filter((transaction) => transaction.type === "receita")
-              .reduce((sum, transaction) => sum + Number(transaction.amount_cents), 0),
-            expense: txs
-              .filter((transaction) => transaction.type === "despesa")
-              .reduce((sum, transaction) => sum + Number(transaction.amount_cents), 0),
-            assets: 0,
+            banks: banks.data?.length ?? 0,
+            investments: investments.data?.length ?? 0,
+            bankStartingBalance: (banks.data ?? []).reduce(
+              (sum, bank) => sum + Number(bank.initial_cents),
+              0,
+            ),
+            investmentValue: (investments.data ?? []).reduce(
+              (sum, investment) =>
+                sum + Number(investment.quantity) * Number(investment.current_price_cents),
+              0,
+            ),
+            months,
           },
         ] as const;
       }),
@@ -346,6 +395,25 @@ function Conexoes() {
             const other = r.sender_id === me ? r.recipient_id : r.sender_id;
             const p = profileById[other];
             const info = shared[other];
+            const sharedWithMe = incomingPermissions[other] ?? emptyPermission;
+            const currentMonth = info?.months.at(-1);
+            const previousMonth = info?.months.at(-2);
+            const daysInMonth = new Date().getDate();
+            const monthLength = new Date(
+              new Date().getFullYear(),
+              new Date().getMonth() + 1,
+              0,
+            ).getDate();
+            const projectedExpense =
+              currentMonth && daysInMonth ? (currentMonth.expense / daysInMonth) * monthLength : 0;
+            const expenseChange =
+              currentMonth && previousMonth && previousMonth.expense > 0
+                ? ((currentMonth.expense - previousMonth.expense) / previousMonth.expense) * 100
+                : null;
+            const maxFlow = Math.max(
+              1,
+              ...(info?.months ?? []).flatMap((month) => [month.income, month.expense]),
+            );
             return (
               <article key={r.id} className="mb-3 rounded-xl border p-4 last:mb-0">
                 <div className="flex items-center gap-3">
@@ -363,26 +431,121 @@ function Conexoes() {
                   <div className="rounded-lg bg-muted/50 p-3">
                     <Wallet className="mb-1 h-4 w-4 text-muted-foreground" />
                     <p className="text-lg font-semibold">{info?.banks ?? "—"}</p>
-                    <p className="text-xs text-muted-foreground">Bancos visíveis</p>
+                    <p className="text-xs text-muted-foreground">Contas compartilhadas</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-3">
+                    <TrendingUp className="mb-1 h-4 w-4 text-muted-foreground" />
+                    <p className="text-sm font-semibold">
+                      {sharedWithMe.share_transactions && currentMonth
+                        ? money(currentMonth.income)
+                        : "Não compartilhado"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Receitas deste mês</p>
                   </div>
                   <div className="rounded-lg bg-muted/50 p-3">
                     <ReceiptText className="mb-1 h-4 w-4 text-muted-foreground" />
-                    <p className="text-lg font-semibold">{info?.transactions ?? "—"}</p>
-                    <p className="text-xs text-muted-foreground">Transações</p>
+                    <p className="text-sm font-semibold">
+                      {sharedWithMe.share_transactions && currentMonth
+                        ? money(currentMonth.expense)
+                        : "Não compartilhado"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Despesas deste mês</p>
                   </div>
                   <div className="rounded-lg bg-muted/50 p-3">
-                    <TrendingUp className="mb-1 h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm font-semibold">{info ? money(info.income) : "—"}</p>
-                    <p className="text-xs text-muted-foreground">Receitas compartilhadas</p>
-                  </div>
-                  <div className="rounded-lg bg-muted/50 p-3">
-                    <TrendingUp className="mb-1 h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm font-semibold">{info ? money(info.expense) : "—"}</p>
-                    <p className="text-xs text-muted-foreground">Despesas compartilhadas</p>
+                    <Clock3 className="mb-1 h-4 w-4 text-muted-foreground" />
+                    <p className="text-sm font-semibold">
+                      {sharedWithMe.share_transactions && currentMonth
+                        ? money(projectedExpense)
+                        : "Não compartilhado"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Previsão de despesas</p>
                   </div>
                 </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">Patrimônio compartilhado</p>
+                      <span className="text-sm font-semibold">
+                        {sharedWithMe.share_balances || sharedWithMe.share_investments
+                          ? money(
+                              (sharedWithMe.share_balances ? (info?.bankStartingBalance ?? 0) : 0) +
+                                (sharedWithMe.share_investments ? (info?.investmentValue ?? 0) : 0),
+                            )
+                          : "Não compartilhado"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Saldo inicial das contas e valor atual dos investimentos autorizados.
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">Comparação com mês anterior</p>
+                      <span className="text-sm font-semibold">
+                        {!sharedWithMe.share_transactions
+                          ? "Não compartilhado"
+                          : expenseChange === null
+                            ? "Sem histórico anterior"
+                            : `${expenseChange > 0 ? "+" : ""}${expenseChange.toFixed(1)}% em despesas`}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Previsão de despesas baseada no ritmo acumulado neste mês.
+                    </p>
+                  </div>
+                </div>
+                {sharedWithMe.share_transactions && info?.months && (
+                  <div className="mt-3 rounded-lg border p-3">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium">Evolução do fluxo mensal</p>
+                      <p className="text-xs text-muted-foreground">
+                        Receitas e despesas nos últimos 6 meses
+                      </p>
+                    </div>
+                    <div
+                      className="grid grid-cols-6 items-end gap-2"
+                      role="img"
+                      aria-label="Gráfico comparando receitas e despesas dos últimos seis meses"
+                    >
+                      {info.months.map((month) => {
+                        const incomeHeight = Math.max(4, (month.income / maxFlow) * 72);
+                        const expenseHeight = Math.max(4, (month.expense / maxFlow) * 72);
+                        return (
+                          <div key={month.key} className="flex min-w-0 flex-col items-center gap-1">
+                            <div className="flex h-[76px] items-end gap-1">
+                              <span
+                                title={`${month.label}: receitas ${money(month.income)}`}
+                                className="w-2.5 rounded-t bg-income"
+                                style={{ height: `${incomeHeight}px` }}
+                              />
+                              <span
+                                title={`${month.label}: despesas ${money(month.expense)}`}
+                                className="w-2.5 rounded-t bg-expense"
+                                style={{ height: `${expenseHeight}px` }}
+                              />
+                            </div>
+                            <span className="text-[11px] capitalize text-muted-foreground">
+                              {month.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-income" /> Receitas
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-expense" /> Despesas
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <div className="mt-4 border-t pt-3">
-                  <p className="mb-2 text-sm font-medium">O que esta pessoa pode ver</p>
+                  <p className="mb-2 text-sm font-medium">Compartilhamento de dados</p>
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    Suas permissões para esta conexão e os dados que ela autorizou compartilhar.
+                  </p>
                   {(
                     [
                       ["share_balances", "Saldos de bancos e cartões"],
@@ -400,6 +563,9 @@ function Conexoes() {
                         onChange={(e) => void updatePermission(other, key, e.target.checked)}
                       />
                       {label}
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        {sharedWithMe[key] ? "Compartilha comigo" : "Não compartilhado comigo"}
+                      </span>
                     </label>
                   ))}
                 </div>

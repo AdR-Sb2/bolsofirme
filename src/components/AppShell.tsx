@@ -54,6 +54,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     email: "",
   });
   const [pendingInvites, setPendingInvites] = useState(0);
+  const [invitePreviews, setInvitePreviews] = useState<
+    { id: string; name: string; avatar: string }[]
+  >([]);
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -70,12 +73,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         setProfile({
           name:
             data?.display_name ||
-            user.user_metadata?.full_name ||
-            user.user_metadata?.name ||
+            user.user_metadata?.["full_name"] ||
+            user.user_metadata?.["name"] ||
             user.email?.split("@")[0] ||
             "Minha conta",
           avatar:
-            data?.avatar_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || "",
+            data?.avatar_url ||
+            user.user_metadata?.["avatar_url"] ||
+            user.user_metadata?.["picture"] ||
+            "",
           email: user.email || "",
         });
     };
@@ -98,13 +104,51 @@ export function AppShell({ children }: { children: ReactNode }) {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user || !alive) return;
-      const { count, error } = await supabase
+      if (!alive) return;
+      if (!user) {
+        setPendingInvites(0);
+        setInvitePreviews([]);
+        return;
+      }
+      const {
+        data: invites,
+        count,
+        error,
+      } = await supabase
         .from("connection_requests")
-        .select("id", { count: "exact", head: true })
+        .select("id,sender_id", { count: "exact" })
         .eq("recipient_id", user.id)
-        .eq("status", "pending");
-      if (alive && !error) setPendingInvites(count ?? 0);
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(3);
+      if (error) {
+        console.error("[Invites] Failed to load pending connection invites.", error);
+        return;
+      }
+      const senders = [...new Set((invites ?? []).map((invite) => invite.sender_id))];
+      const { data: profiles, error: profilesError } = senders.length
+        ? await supabase
+            .from("user_profiles")
+            .select("user_id,display_name,avatar_url")
+            .in("user_id", senders)
+        : { data: [], error: null };
+      if (profilesError) {
+        console.error("[Invites] Failed to load connection invite profiles.", profilesError);
+      }
+      if (alive) {
+        const profileById = new Map((profiles ?? []).map((item) => [item.user_id, item]));
+        setPendingInvites(count ?? 0);
+        setInvitePreviews(
+          (invites ?? []).map((invite) => {
+            const sender = profileById.get(invite.sender_id);
+            return {
+              id: invite.id,
+              name: sender?.display_name || "Pessoa usuária",
+              avatar: sender?.avatar_url ?? "",
+            };
+          }),
+        );
+      }
     };
     void refreshInvites();
     const onFocus = () => {
@@ -112,6 +156,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
     window.addEventListener("focus", onFocus);
     window.addEventListener("connection-invites-updated", onFocus);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(onFocus);
     const channel = supabase
       .channel("profile-incoming-invites")
       .on(
@@ -129,10 +176,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       alive = false;
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("connection-invites-updated", onFocus);
+      subscription.unsubscribe();
       window.clearInterval(poll);
       void supabase.removeChannel(channel);
     };
-  }, [path]);
+  }, []);
   const initials =
     profile.name
       .trim()
@@ -263,13 +311,44 @@ export function AppShell({ children }: { children: ReactNode }) {
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {pendingInvites > 0 && (
-                    <DropdownMenuItem
-                      onSelect={() => window.location.assign("/conexoes#recebidos")}
-                      className="font-semibold text-primary"
-                    >
-                      <Users className="h-4 w-4" />
-                      Verificar convite{pendingInvites > 1 ? `s (${pendingInvites})` : ""}
-                    </DropdownMenuItem>
+                    <>
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        {pendingInvites === 1
+                          ? "Novo convite recebido"
+                          : `${pendingInvites} convites recebidos`}
+                      </DropdownMenuLabel>
+                      {invitePreviews.map((invite) => (
+                        <DropdownMenuItem
+                          key={invite.id}
+                          onSelect={() => window.location.assign("/conexoes#recebidos")}
+                          className="gap-2"
+                        >
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={invite.avatar || undefined} alt="" />
+                            <AvatarFallback className="text-xs">
+                              {invite.name
+                                .split(/\s+/)
+                                .slice(0, 2)
+                                .map((part) => part[0])
+                                .join("")
+                                .toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="min-w-0 flex-1 truncate">{invite.name}</span>
+                          <span className="text-xs text-muted-foreground">Convidou você</span>
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuItem
+                        onSelect={() => window.location.assign("/conexoes#recebidos")}
+                        className="font-semibold text-primary"
+                      >
+                        <Users className="h-4 w-4" />
+                        Verificar convite{pendingInvites > 1 ? `s (${pendingInvites})` : ""}
+                        <span className="ml-auto" aria-hidden="true">
+                          →
+                        </span>
+                      </DropdownMenuItem>
+                    </>
                   )}
                   {pendingInvites > 0 && <DropdownMenuSeparator />}
                   <DropdownMenuItem onSelect={() => window.location.assign("/configuracoes")}>

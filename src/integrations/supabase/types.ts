@@ -207,6 +207,9 @@ export type Database = {
           date: string;
           description: string;
           id: string;
+          installment_count: number;
+          installment_group_id: string | null;
+          installment_number: number;
           paid: boolean;
           type: string;
           user_id: string;
@@ -220,6 +223,9 @@ export type Database = {
           date: string;
           description: string;
           id?: string;
+          installment_count?: number;
+          installment_group_id?: string | null;
+          installment_number?: number;
           paid?: boolean;
           type: string;
           user_id?: string;
@@ -233,6 +239,9 @@ export type Database = {
           date?: string;
           description?: string;
           id?: string;
+          installment_count?: number;
+          installment_group_id?: string | null;
+          installment_number?: number;
           paid?: boolean;
           type?: string;
           user_id?: string;
