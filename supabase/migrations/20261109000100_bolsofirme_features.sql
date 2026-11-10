@@ -1,3 +1,60 @@
+-- Schema inicial completo do BolsoFirme para projetos Supabase novos.
+-- Deve criar as tabelas financeiras antes das extensões abaixo.
+create table if not exists public.categories (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  name text not null,
+  icon text not null default '🏷️',
+  color text not null default '#64748b',
+  created_at timestamptz not null default now()
+);
+create table if not exists public.banks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  name text not null,
+  color text not null default '#3b82f6',
+  kind text not null default 'Conta Corrente',
+  initial_cents bigint not null default 0,
+  logo text not null default '',
+  created_at timestamptz not null default now()
+);
+create table if not exists public.cards (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  name text not null,
+  bank text not null default '',
+  brand text not null default '',
+  color text not null default '#3b82f6',
+  limit_cents bigint not null default 0,
+  closing_day integer not null default 1,
+  due_day integer not null default 10,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  description text not null,
+  amount_cents bigint not null,
+  type text not null check (type in ('receita','despesa')),
+  date date not null,
+  category_id uuid references public.categories(id) on delete set null,
+  bank_id uuid references public.banks(id) on delete restrict,
+  card_id uuid references public.cards(id) on delete restrict,
+  paid boolean not null default false,
+  created_at timestamptz not null default now()
+);
+grant select, insert, update, delete on public.categories, public.banks, public.cards, public.transactions to authenticated;
+grant all on public.categories, public.banks, public.cards, public.transactions to service_role;
+alter table public.categories enable row level security;
+alter table public.banks enable row level security;
+alter table public.cards enable row level security;
+alter table public.transactions enable row level security;
+create policy "own categories" on public.categories for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "own banks" on public.banks for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "own cards" on public.cards for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "own transactions" on public.transactions for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create index if not exists transactions_user_date_idx on public.transactions (user_id, date);
+
 -- Recursos de bancos, cartões, investimentos e conexões do BolsoFirme
 alter table public.banks add column if not exists logo text not null default '';
 alter table public.cards add column if not exists brand text not null default '';
@@ -89,3 +146,10 @@ begin
 end; $$;
 drop trigger if exists on_auth_user_created_profile on auth.users;
 create trigger on_auth_user_created_profile after insert on auth.users for each row execute procedure public.create_user_profile();
+
+-- Permissões explícitas para as tabelas complementares.
+grant select, insert, update, delete on public.user_profiles, public.user_settings,
+  public.investments, public.connection_requests, public.connection_permissions to authenticated;
+grant all on public.user_profiles, public.user_settings, public.investments,
+  public.connection_requests, public.connection_permissions to service_role;
+create index if not exists investments_user_id_idx on public.investments(user_id);
