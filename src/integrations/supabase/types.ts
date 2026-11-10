@@ -200,6 +200,7 @@ export type Database = {
       transactions: {
         Row: {
           amount_cents: number;
+          attachment_path: string | null;
           bank_id: string | null;
           card_id: string | null;
           category_id: string | null;
@@ -220,6 +221,7 @@ export type Database = {
         };
         Insert: {
           amount_cents: number;
+          attachment_path?: string | null;
           bank_id?: string | null;
           card_id?: string | null;
           category_id?: string | null;
@@ -240,6 +242,7 @@ export type Database = {
         };
         Update: {
           amount_cents?: number;
+          attachment_path?: string | null;
           bank_id?: string | null;
           card_id?: string | null;
           category_id?: string | null;

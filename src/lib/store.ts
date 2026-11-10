@@ -43,6 +43,7 @@ export interface Tx {
   recurrenceFrequency?: RecurrenceFrequency | undefined;
   recurrenceNumber?: number | undefined;
   recurrenceCount?: number | undefined;
+  attachmentPath?: string | undefined;
 }
 export interface State {
   categories: Category[];
@@ -158,6 +159,7 @@ const toRow = {
     recurrence_frequency: t.recurrenceFrequency ?? null,
     recurrence_number: t.recurrenceNumber ?? 1,
     recurrence_count: t.recurrenceCount ?? 1,
+    attachment_path: t.attachmentPath ?? null,
   }),
 };
 
@@ -216,6 +218,7 @@ export async function loadUserData(userId: string) {
       recurrenceFrequency: parseRecurrenceFrequency(r.recurrence_frequency),
       recurrenceNumber: r.recurrence_number,
       recurrenceCount: r.recurrence_count,
+      attachmentPath: r.attachment_path ?? undefined,
     })),
   };
   if (next.categories.length === 0) {

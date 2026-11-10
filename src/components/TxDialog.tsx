@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { supabase } from "@/integrations/supabase/client";
 import {
   addMonthsToDate,
   addRecurrenceDate,
@@ -54,6 +55,10 @@ export function TxDialog({
     recurrenceFrequency: "monthly" as RecurrenceFrequency,
   };
   const [f, setF] = useState(empty);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [removeReceipt, setRemoveReceipt] = useState(false);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!open) return;
     setF(
@@ -71,10 +76,33 @@ export function TxDialog({
           }
         : empty,
     );
+    setReceiptFile(null);
+    setRemoveReceipt(false);
+    setReceiptUrl(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tx]);
 
-  const save = (): void => {
+  useEffect(() => {
+    if (!open || !tx?.attachmentPath) return;
+    let active = true;
+    void supabase.storage
+      .from("transaction-receipts")
+      .createSignedUrl(tx.attachmentPath, 300)
+      .then(({ data, error }) => {
+        if (error) throw error;
+        if (active) setReceiptUrl(data.signedUrl);
+      })
+      .catch((error: unknown) => {
+        console.error("Não foi possível gerar o link do comprovante:", error);
+        if (active) toast.error("Não foi possível abrir o comprovante.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, tx?.attachmentPath]);
+
+  const save = async (): Promise<void> => {
+    if (saving) return;
     const amount = Math.round(parseFloat(f.amount.replace(/\./g, "").replace(",", ".")) * 100);
     if (!f.description.trim() || !amount || amount <= 0) {
       toast.error("Preencha descrição e valor válidos");
@@ -111,60 +139,107 @@ export function TxDialog({
       toast.error("O valor não pode ser dividido em parcelas menores que R$ 0,01.");
       return;
     }
-    const data: Tx = {
-      id: tx?.id ?? uid(),
-      description: f.description.trim(),
-      amount,
-      type: f.type as Tx["type"],
-      date: f.date,
-      categoryId: f.categoryId,
-      bankId: k === "b" ? id : undefined,
-      cardId: k === "c" ? id : undefined,
-      paid: tx?.paid ?? false,
-      installmentGroupId: tx?.installmentGroupId,
-      installmentNumber: tx?.installmentNumber,
-      installmentCount: tx?.installmentCount ?? 1,
-      recurrenceGroupId: tx?.recurrenceGroupId,
-      recurrenceFrequency: tx?.recurrenceFrequency,
-      recurrenceNumber: tx?.recurrenceNumber,
-      recurrenceCount: tx?.recurrenceCount ?? 1,
-    };
-    if (tx) {
-      setState((st) => ({ ...st, txs: st.txs.map((t) => (t.id === tx.id ? data : t)) }));
-    } else if (installmentCount > 1) {
-      const installmentGroupId = uid();
-      const baseAmount = Math.floor(amount / installmentCount);
-      const remainder = amount % installmentCount;
-      const installments = Array.from({ length: installmentCount }, (_, index): Tx => ({
-        ...data,
-        id: uid(),
-        description: `${data.description} (${index + 1}/${installmentCount})`,
-        amount: baseAmount + (index < remainder ? 1 : 0),
-        date: addMonthsToDate(f.date, index),
-        installmentGroupId,
-        installmentNumber: index + 1,
-        installmentCount,
-      }));
-      setState((st) => ({ ...st, txs: [...st.txs, ...installments] }));
-    } else if (recurrenceCount > 1) {
-      const recurrenceGroupId = uid();
-      const recurringTransactions = Array.from({ length: recurrenceCount }, (_, index): Tx => ({
-        ...data,
-        id: uid(),
-        date: addRecurrenceDate(f.date, f.recurrenceFrequency, index),
-        recurrenceGroupId,
-        recurrenceFrequency: f.recurrenceFrequency,
-        recurrenceNumber: index + 1,
-        recurrenceCount,
-      }));
-      setState((st) => ({ ...st, txs: [...st.txs, ...recurringTransactions] }));
-    } else {
-      setState((st) => ({ ...st, txs: [...st.txs, data] }));
+    if (receiptFile) {
+      const acceptedTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+      if (!acceptedTypes.includes(receiptFile.type)) {
+        toast.error("Use um comprovante em JPG, PNG, WebP ou PDF.");
+        return;
+      }
+      if (receiptFile.size > 5 * 1024 * 1024) {
+        toast.error("O comprovante deve ter no máximo 5 MB.");
+        return;
+      }
     }
-    toast.success(tx ? "Transação atualizada" : "Transação criada");
-    onOpenChange(false);
+    setSaving(true);
+    const transactionId = tx?.id ?? uid();
+    let attachmentPath = tx?.attachmentPath;
+    try {
+      if (receiptFile || removeReceipt) {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) {
+          toast.error("Entre novamente na sua conta para salvar o comprovante.");
+          return;
+        }
+        if (receiptFile) {
+          attachmentPath = attachmentPath ?? `${user.id}/${transactionId}/${uid()}`;
+          const { error } = await supabase.storage
+            .from("transaction-receipts")
+            .upload(attachmentPath, receiptFile, {
+              upsert: true,
+              contentType: receiptFile.type,
+            });
+          if (error) throw error;
+        } else if (attachmentPath) {
+          const { error } = await supabase.storage
+            .from("transaction-receipts")
+            .remove([attachmentPath]);
+          if (error) throw error;
+          attachmentPath = undefined;
+        }
+      }
+      const data: Tx = {
+        id: transactionId,
+        description: f.description.trim(),
+        amount,
+        type: f.type as Tx["type"],
+        date: f.date,
+        categoryId: f.categoryId,
+        bankId: k === "b" ? id : undefined,
+        cardId: k === "c" ? id : undefined,
+        paid: tx?.paid ?? false,
+        installmentGroupId: tx?.installmentGroupId,
+        installmentNumber: tx?.installmentNumber,
+        installmentCount: tx?.installmentCount ?? 1,
+        recurrenceGroupId: tx?.recurrenceGroupId,
+        recurrenceFrequency: tx?.recurrenceFrequency,
+        recurrenceNumber: tx?.recurrenceNumber,
+        recurrenceCount: tx?.recurrenceCount ?? 1,
+        attachmentPath,
+      };
+      if (tx) {
+        setState((st) => ({ ...st, txs: st.txs.map((t) => (t.id === tx.id ? data : t)) }));
+      } else if (installmentCount > 1) {
+        const installmentGroupId = uid();
+        const baseAmount = Math.floor(amount / installmentCount);
+        const remainder = amount % installmentCount;
+        const installments = Array.from({ length: installmentCount }, (_, index): Tx => ({
+          ...data,
+          id: uid(),
+          description: `${data.description} (${index + 1}/${installmentCount})`,
+          amount: baseAmount + (index < remainder ? 1 : 0),
+          date: addMonthsToDate(f.date, index),
+          installmentGroupId,
+          installmentNumber: index + 1,
+          installmentCount,
+        }));
+        setState((st) => ({ ...st, txs: [...st.txs, ...installments] }));
+      } else if (recurrenceCount > 1) {
+        const recurrenceGroupId = uid();
+        const recurringTransactions = Array.from({ length: recurrenceCount }, (_, index): Tx => ({
+          ...data,
+          id: uid(),
+          date: addRecurrenceDate(f.date, f.recurrenceFrequency, index),
+          recurrenceGroupId,
+          recurrenceFrequency: f.recurrenceFrequency,
+          recurrenceNumber: index + 1,
+          recurrenceCount,
+        }));
+        setState((st) => ({ ...st, txs: [...st.txs, ...recurringTransactions] }));
+      } else {
+        setState((st) => ({ ...st, txs: [...st.txs, data] }));
+      }
+      toast.success(tx ? "Transação atualizada" : "Transação criada");
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Não foi possível salvar a transação ou seu comprovante:", error);
+      toast.error("Não foi possível salvar a transação ou o comprovante.");
+    } finally {
+      setSaving(false);
+    }
   };
-  const remove = () => {
+  const remove = async () => {
     if (!tx) return;
     const installmentGroupId = tx.installmentGroupId;
     const recurrenceGroupId = tx.recurrenceGroupId;
@@ -178,18 +253,45 @@ export function TxDialog({
       )
     )
       return;
-    setState((st) => ({
-      ...st,
-      txs: st.txs.filter((t) =>
+    if (saving) return;
+    setSaving(true);
+    try {
+      const groupTransactions = s.txs.filter((item) =>
         installmentGroupId
-          ? t.installmentGroupId !== installmentGroupId
+          ? item.installmentGroupId === installmentGroupId
           : recurrenceGroupId
-            ? t.recurrenceGroupId !== recurrenceGroupId
-            : t.id !== tx.id,
-      ),
-    }));
-    toast.success("Transação excluída");
-    onOpenChange(false);
+            ? item.recurrenceGroupId === recurrenceGroupId
+            : item.id === tx.id,
+      );
+      const attachmentPaths = [
+        ...new Set(
+          groupTransactions.flatMap((item) => (item.attachmentPath ? [item.attachmentPath] : [])),
+        ),
+      ];
+      if (attachmentPaths.length) {
+        const { error } = await supabase.storage
+          .from("transaction-receipts")
+          .remove(attachmentPaths);
+        if (error) throw error;
+      }
+      setState((st) => ({
+        ...st,
+        txs: st.txs.filter((t) =>
+          installmentGroupId
+            ? t.installmentGroupId !== installmentGroupId
+            : recurrenceGroupId
+              ? t.recurrenceGroupId !== recurrenceGroupId
+              : t.id !== tx.id,
+        ),
+      }));
+      toast.success("Transação excluída");
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Não foi possível excluir a transação e seus comprovantes:", error);
+      toast.error("Não foi possível excluir a transação e seus comprovantes.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -341,14 +443,72 @@ export function TxDialog({
               )}
             </div>
           )}
+          <div className="grid gap-2">
+            <Label htmlFor="transaction-receipt">
+              Comprovante (JPG, PNG, WebP ou PDF; até 5 MB)
+            </Label>
+            <Input
+              id="transaction-receipt"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              onChange={(event) => {
+                setReceiptFile(event.target.files?.[0] ?? null);
+                setRemoveReceipt(false);
+              }}
+            />
+            {tx?.attachmentPath && !removeReceipt && (
+              <div className="flex items-center justify-between gap-2 text-sm">
+                {receiptUrl ? (
+                  <a
+                    className="text-primary underline"
+                    href={receiptUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Abrir comprovante
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">Preparando comprovante…</span>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setReceiptFile(null);
+                    setRemoveReceipt(true);
+                    setReceiptUrl(null);
+                  }}
+                >
+                  Remover
+                </Button>
+              </div>
+            )}
+            {removeReceipt && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="justify-self-start"
+                onClick={() => setRemoveReceipt(false)}
+              >
+                Cancelar remoção do comprovante
+              </Button>
+            )}
+            {receiptFile && (
+              <p className="text-xs text-muted-foreground">Arquivo: {receiptFile.name}</p>
+            )}
+          </div>
         </div>
         <DialogFooter className="gap-2">
           {tx && (
-            <Button variant="destructive" onClick={remove}>
+            <Button variant="destructive" disabled={saving} onClick={() => void remove()}>
               Excluir
             </Button>
           )}
-          <Button onClick={save}>Salvar</Button>
+          <Button disabled={saving} onClick={() => void save()}>
+            {saving ? "Salvando..." : "Salvar"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
