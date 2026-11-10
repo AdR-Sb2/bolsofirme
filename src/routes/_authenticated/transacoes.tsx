@@ -13,7 +13,7 @@ export const Route = createFileRoute("/_authenticated/transacoes")({
       { name: "description", content: "Acompanhe entradas, saídas e saldo do mês no BolsoFirme." },
       { property: "og:title", content: "Transações — BolsoFirme" },
       { property: "og:description", content: "Acompanhe entradas, saídas e saldo do mês no BolsoFirme." },
-    ],
+    { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }],
   }),
   component: Transacoes,
 });

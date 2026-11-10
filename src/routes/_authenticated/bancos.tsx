@@ -16,7 +16,7 @@ export const Route = createFileRoute("/_authenticated/bancos")({
       { name: "description", content: "Gerencie suas contas bancárias e acompanhe os saldos." },
       { property: "og:title", content: "Bancos — BolsoFirme" },
       { property: "og:description", content: "Gerencie suas contas bancárias e acompanhe os saldos." },
-    ],
+    { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }],
   }),
   component: Bancos,
 });

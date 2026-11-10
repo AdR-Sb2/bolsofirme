@@ -8,7 +8,7 @@ import { PageTitle } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
 const money=(n:number)=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(n/100);
 type Asset={id:string;name:string;ticker:string;asset_type:string;quantity:number;average_price_cents:number;current_price_cents:number};
-export const Route=createFileRoute("/_authenticated/investimentos")({component:Investimentos});
+export const Route=createFileRoute("/_authenticated/investimentos")({head:()=>({meta:[{title:"Investimentos — BolsoFirme"},{name:"description",content:"Acompanhe sua carteira de investimentos no BolsoFirme."},{property:"og:title",content:"Investimentos — BolsoFirme"},{property:"og:description",content:"Acompanhe sua carteira de investimentos no BolsoFirme."},{ property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }]}),component:Investimentos});
 function Investimentos(){
  const [rows,setRows]=useState<Asset[]>([]);const [name,setName]=useState("");const [ticker,setTicker]=useState("");const [kind,setKind]=useState("Ação");const [qty,setQty]=useState("1");const [avg,setAvg]=useState("");const [price,setPrice]=useState("");const [busy,setBusy]=useState(true);
  const db=supabase as any;

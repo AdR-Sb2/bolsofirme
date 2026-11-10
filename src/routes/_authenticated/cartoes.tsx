@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_authenticated/cartoes")({
       { name: "description", content: "Gerencie seus cartões e acompanhe as faturas." },
       { property: "og:title", content: "Cartões de Crédito — BolsoFirme" },
       { property: "og:description", content: "Gerencie seus cartões e acompanhe as faturas." },
-    ],
+    { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }],
   }),
   component: Cartoes,
 });

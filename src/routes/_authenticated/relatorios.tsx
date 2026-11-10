@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { MonthPicker,PageTitle } from "@/components/AppShell";
 import { brl,monthKey,monthTotals,useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-export const Route=createFileRoute("/_authenticated/relatorios")({head:()=>({meta:[{title:"Relatórios — BolsoFirme"},{name:"description",content:"Acompanhe receitas e despesas por mês e ano."}]}),component:Relatorios});
+export const Route=createFileRoute("/_authenticated/relatorios")({head:()=>({meta:[{title:"Relatórios — BolsoFirme"},{name:"description",content:"Acompanhe receitas e despesas por mês e ano."},{property:"og:title",content:"Relatórios — BolsoFirme"},{property:"og:description",content:"Acompanhe receitas e despesas por mês e ano."},{ property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }]}),component:Relatorios});
 const sel="h-9 rounded-md border border-input bg-card px-3 text-sm";
 function Relatorios(){
  const s=useStore();const [date,setDate]=useState(()=>new Date());const [mode,setMode]=useState<"pizza"|"barras"|"tendencia"|"anual">("pizza");const [bank,setBank]=useState("");const [active,setActive]=useState<string|null>(null);

@@ -3,12 +3,13 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Wallet, Mail, Lock, Eye, EyeOff, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/auth")({
-  head: () => ({ meta: [{ title: "Entrar — BolsoFirme" }, { name: "description", content: "Acesse ou crie sua conta do BolsoFirme." }] }),
+  head: () => ({ meta: [{ title: "Entrar — BolsoFirme" }, { name: "description", content: "Acesse ou crie sua conta do BolsoFirme." }, { property: "og:title", content: "Entrar — BolsoFirme" }, { property: "og:description", content: "Acesse ou crie sua conta do BolsoFirme." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }] }),
   component: AuthPage,
 });
 
@@ -24,8 +25,6 @@ function AuthPage() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { if (data.session) nav({ to: "/transacoes" }); });
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => { if (session) nav({ to: "/transacoes" }); });
-    return () => data.subscription.unsubscribe();
   }, [nav]);
 
   const submitEmail = async (event: FormEvent<HTMLFormElement>) => {
@@ -65,8 +64,16 @@ function AuthPage() {
 
   const signInGoogle = async () => {
     setBusy(true);
-    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
-    if (error) { toast.error("Não foi possível entrar com o Google. Verifique se o provedor está ativado no Supabase."); setBusy(false); }
+    try {
+      const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
+      if (result.error) throw result.error;
+      const { data } = await supabase.auth.getSession();
+      if (data.session) nav({ to: "/transacoes" });
+    } catch {
+      toast.error("Não foi possível entrar com o Google. Tente novamente.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return <main className="grid min-h-screen place-items-center bg-background p-4">

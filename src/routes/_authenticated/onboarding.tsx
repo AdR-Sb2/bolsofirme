@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { setState, uid, type Bank, type CardC } from "@/lib/store";
 
-export const Route = createFileRoute("/_authenticated/onboarding")({ component: Onboarding });
+export const Route = createFileRoute("/_authenticated/onboarding")({head:()=>({meta:[{title:"Configurar carteira — BolsoFirme"},{name:"description",content:"Prepare seus bancos e cartões no BolsoFirme."},{property:"og:title",content:"Configurar carteira — BolsoFirme"},{property:"og:description",content:"Prepare seus bancos e cartões no BolsoFirme."},{ property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }]}), component: Onboarding });
 
 const CATALOG = [
  ["Banco do Brasil","#f5c400","https://cdn.simpleicons.org/bancodobrasil"],["Nubank","#820ad1","https://cdn.simpleicons.org/nubank"],["Itaú","#ec7000","https://cdn.simpleicons.org/itau"],["Bradesco","#cc092f","https://cdn.simpleicons.org/bradesco"],["Caixa","#0066a1","https://cdn.simpleicons.org/caixa"],["Santander","#ec0000","https://cdn.simpleicons.org/santander"],["Banco Inter","#ff7a00","https://cdn.simpleicons.org/bancointer"],["C6 Bank","#242424","https://cdn.simpleicons.org/c6bank"],["BTG Pactual","#003b5c","https://cdn.simpleicons.org/btgpactual"],["Sicredi","#3b7d23","https://cdn.simpleicons.org/sicredi"],["Sicoob","#009b63","https://cdn.simpleicons.org/sicoob"],["PagBank","#00a5e5","https://cdn.simpleicons.org/pagbank"],["Mercado Pago","#009ee3","https://cdn.simpleicons.org/mercadopago"],["PicPay","#21c25e","https://cdn.simpleicons.org/picpay"],["Neon","#00a5a8","https://cdn.simpleicons.org/neon"],["Next","#00c8b4","https://cdn.simpleicons.org/next"],["Original","#00a859","https://cdn.simpleicons.org/bancooriginal"],["Safra","#a18a52","https://cdn.simpleicons.org/bancosafra"],["XP","#111111","https://cdn.simpleicons.org/xpinc"],["Genial","#00a99d","https://cdn.simpleicons.org/genial"],["Modalmais","#5b2c83","https://cdn.simpleicons.org/modalmais"],["Daycoval","#003b70","https://cdn.simpleicons.org/bancodaycoval"],["BMG","#006b54","https://cdn.simpleicons.org/bmg"],["BRB","#0067a5","https://cdn.simpleicons.org/brb"],["Banrisul","#00529b","https://cdn.simpleicons.org/banrisul"],["Banestes","#00529b","https://cdn.simpleicons.org/banestes"],["Banco Pan","#ff6600","https://cdn.simpleicons.org/bancopan"],["Will Bank","#ffde00","https://cdn.simpleicons.org/willbank"],["iti Itaú","#ec7000","https://cdn.simpleicons.org/itau"],["Stone","#00a868","https://cdn.simpleicons.org/stone"]
@@ -32,16 +32,15 @@ function Onboarding(){
   try{
    const {data:{user}}=await supabase.auth.getUser();
    if(!user){toast.error("Sua sessão expirou. Entre novamente.");setSaving(false);return;}
-   const banks:Bank[]=selected.map(name=>{const b=CATALOG.find(x=>x[0]===name)!;return{id:uid(),name,color:b[1],logo:b[2],kind:"Conta Corrente",initial:0};});
+   const banks:Bank[]=selected.flatMap(name=>{const b=CATALOG.find(x=>x[0]===name);return b?[{id:uid(),name,color:b[1],logo:b[2],kind:"Conta Corrente" as const,initial:0}]:[];});
    const bankInsert=banks.map(b=>({id:b.id,user_id:user.id,name:b.name,color:b.color,logo:b.logo,kind:b.kind,initial_cents:0}));
    const cardInsert:CardC[]=cards.map(c=>({id:uid(),name:c.bank+" • "+c.brand,bank:c.bank,brand:c.brand,color:"#64748b",limit:Math.round(Number(c.limit)*100),closing:Number(c.closing),due:Number(c.due)}));
    const db=supabase as any;
-   const [br,cr,sr]=await Promise.all([
-    db.from("banks").insert(bankInsert),
-    db.from("cards").insert(cardInsert.map(c=>({id:c.id,user_id:user.id,name:c.name,bank:c.bank,brand:c.brand,color:c.color,limit_cents:c.limit,closing_day:c.closing,due_day:c.due}))),
-    db.from("user_settings").upsert({user_id:user.id,onboarding_complete:true,selected_banks:selected})
-   ]);
-   if(br.error||cr.error||sr.error){console.error(br.error,cr.error,sr.error);toast.error("Não foi possível salvar. Confira se a configuração do banco de dados foi aplicada.");setSaving(false);return;}
+   const {error:bankError}=await db.from("banks").upsert(bankInsert);
+   if(bankError)throw bankError;
+   if(cardInsert.length){const {error:cardError}=await db.from("cards").upsert(cardInsert.map(c=>({id:c.id,user_id:user.id,name:c.name,bank:c.bank,brand:c.brand,color:c.color,limit_cents:c.limit,closing_day:c.closing,due_day:c.due})));if(cardError)throw cardError;}
+   const {error:settingsError}=await db.from("user_settings").upsert({user_id:user.id,onboarding_complete:true,selected_banks:selected});
+   if(settingsError)throw settingsError;
    setState(st=>({...st,banks,cards:cardInsert}));
    toast.success("Tudo pronto! Sua carteira foi criada.");
    nav({to:"/transacoes"});

@@ -21,6 +21,7 @@ export type Database = {
           id: string
           initial_cents: number
           kind: string
+          logo: string
           name: string
           user_id: string
         }
@@ -30,6 +31,7 @@ export type Database = {
           id?: string
           initial_cents?: number
           kind?: string
+          logo?: string
           name: string
           user_id?: string
         }
@@ -39,6 +41,7 @@ export type Database = {
           id?: string
           initial_cents?: number
           kind?: string
+          logo?: string
           name?: string
           user_id?: string
         }
@@ -47,6 +50,7 @@ export type Database = {
       cards: {
         Row: {
           bank: string
+          brand: string
           closing_day: number
           color: string
           created_at: string
@@ -58,6 +62,7 @@ export type Database = {
         }
         Insert: {
           bank?: string
+          brand?: string
           closing_day?: number
           color?: string
           created_at?: string
@@ -69,6 +74,7 @@ export type Database = {
         }
         Update: {
           bank?: string
+          brand?: string
           closing_day?: number
           color?: string
           created_at?: string
@@ -103,6 +109,90 @@ export type Database = {
           icon?: string
           id?: string
           name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      connection_permissions: {
+        Row: {
+          owner_id: string
+          share_balances: boolean
+          share_investments: boolean
+          share_transactions: boolean
+          viewer_id: string
+        }
+        Insert: {
+          owner_id: string
+          share_balances?: boolean
+          share_investments?: boolean
+          share_transactions?: boolean
+          viewer_id: string
+        }
+        Update: {
+          owner_id?: string
+          share_balances?: boolean
+          share_investments?: boolean
+          share_transactions?: boolean
+          viewer_id?: string
+        }
+        Relationships: []
+      }
+      connection_requests: {
+        Row: {
+          id: string
+          recipient_id: string
+          sender_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          recipient_id: string
+          sender_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          recipient_id?: string
+          sender_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      investments: {
+        Row: {
+          asset_type: string
+          average_price_cents: number
+          current_price_cents: number
+          id: string
+          name: string
+          quantity: number
+          ticker: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          asset_type?: string
+          average_price_cents?: number
+          current_price_cents?: number
+          id?: string
+          name: string
+          quantity: number
+          ticker?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          asset_type?: string
+          average_price_cents?: number
+          current_price_cents?: number
+          id?: string
+          name?: string
+          quantity?: number
+          ticker?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -171,12 +261,59 @@ export type Database = {
           },
         ]
       }
+      user_profiles: {
+        Row: {
+          avatar_url: string
+          display_name: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string
+          display_name?: string
+          user_id?: string
+        }
+        Update: {
+          avatar_url?: string
+          display_name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          onboarding_complete: boolean
+          selected_banks: string[]
+          user_id: string
+        }
+        Insert: {
+          onboarding_complete?: boolean
+          selected_banks?: string[]
+          user_id?: string
+        }
+        Update: {
+          onboarding_complete?: boolean
+          selected_banks?: string[]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      shared_finance_summary: {
+        Args: never
+        Returns: {
+          assets: number
+          banks: number
+          expense: number
+          income: number
+          investments: number
+          transactions: number
+          user_id: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

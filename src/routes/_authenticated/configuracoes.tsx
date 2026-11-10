@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_authenticated/configuracoes")({
       { name: "description", content: "Categorias, preferências e exportação de dados." },
       { property: "og:title", content: "Configurações — BolsoFirme" },
       { property: "og:description", content: "Categorias, preferências e exportação de dados." },
-    ],
+    { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }],
   }),
   component: Config,
 });
