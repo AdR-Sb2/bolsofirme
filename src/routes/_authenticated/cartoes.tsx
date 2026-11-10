@@ -12,19 +12,23 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MonthPicker, PageTitle } from "@/components/AppShell";
+import { MonthPicker, PageTitle, useTxDialog } from "@/components/AppShell";
 import {
   brl,
   cardInvoiceDates,
   cardInvoiceKey,
   cardUsed,
   fmtDate,
+  invoiceMonth,
+  invoiceSummary,
   monthKey,
   monthLabel,
   setState,
+  transactionInvoiceMonth,
   uid,
   useStore,
   type CardC,
+  type CreditCardInvoice,
   type Tx,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -77,19 +81,16 @@ function daysUntil(isoDate: string): number {
   return Math.round((due.getTime() - today.getTime()) / 86_400_000);
 }
 
-function getInvoiceStatus(card: CardC, month: string, items: Tx[]): string {
-  if (!items.length) return "Sem lançamentos";
-  if (items.every((item) => item.paid)) return "Paga";
-  const dates = cardInvoiceDates(month, card);
-  if (dates.dueDate < todayKey()) return "Vencida";
-  if (dates.closingDate <= todayKey()) return "Fechada · em aberto";
-  return "Aberta";
-}
-
 function Cartoes() {
   const store = useStore();
+  const openTransaction = useTxDialog();
   const [date, setDate] = useState(() => new Date());
   const [invoice, setInvoice] = useState<InvoiceSelection | null>(null);
+  const [paymentInvoice, setPaymentInvoice] = useState<{
+    card: CardC;
+    invoice: CreditCardInvoice;
+  } | null>(null);
+  const [editingPayment, setEditingPayment] = useState<Tx | null>(null);
   const [config, setConfig] = useState<{ open: boolean; card: CardC | null }>({
     open: false,
     card: null,
@@ -103,12 +104,12 @@ function Cartoes() {
     total: store.txs
       .filter(
         (transaction) =>
+          transaction.type === "despesa" &&
           transaction.cardId &&
-          !transaction.paid &&
-          store.cards.some((card) => card.id === transaction.cardId) &&
           store.cards.some(
             (card) =>
-              card.id === transaction.cardId && cardInvoiceKey(transaction.date, card) === month,
+              card.id === transaction.cardId &&
+              transactionInvoiceMonth(transaction, card, store.invoices) === month,
           ),
       )
       .reduce((sum, transaction) => sum + transaction.amount, 0),
@@ -169,27 +170,40 @@ function Cartoes() {
         <div className="grid gap-4 xl:grid-cols-2">
           {store.cards.map((card) => {
             const used = cardUsed(store, card.id);
-            const available = card.limit - used;
+            const available = Math.max(0, card.limit - used);
             const percentage = card.limit > 0 ? (used / card.limit) * 100 : 0;
+            const currentInvoice = store.invoices.find(
+              (item) => item.cardId === card.id && invoiceMonth(item) === selectedMonth,
+            );
             const invoiceItems = store.txs.filter(
               (transaction) =>
                 transaction.cardId === card.id &&
-                cardInvoiceKey(transaction.date, card) === selectedMonth,
+                transaction.type === "despesa" &&
+                ((currentInvoice && transaction.invoiceId === currentInvoice.id) ||
+                  (!transaction.invoiceId &&
+                    cardInvoiceKey(transaction.date, card) === selectedMonth)),
             );
             const invoiceTotal = invoiceItems.reduce((sum, item) => sum + item.amount, 0);
-            const outstanding = store.txs
-              .filter((transaction) => transaction.cardId === card.id && !transaction.paid)
-              .map((transaction) => {
-                const month = cardInvoiceKey(transaction.date, card);
-                const dates = cardInvoiceDates(month, card);
-                return { month, dueDate: dates.dueDate };
-              })
+            const outstanding = store.invoices
+              .filter((item) => item.cardId === card.id)
+              .map((item) => ({
+                dueDate: item.dueDate,
+                amount: invoiceSummary(item, store.txs, card).outstanding,
+              }))
+              .filter((item) => item.amount > 0)
               .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
             const nextDue = outstanding[0];
             const daysToDue = nextDue ? daysUntil(nextDue.dueDate) : null;
             const dueWarning = daysToDue !== null && daysToDue <= 7;
-            const invoiceDates = cardInvoiceDates(selectedMonth, card);
-            const invoiceStatus = getInvoiceStatus(card, selectedMonth, invoiceItems);
+            const invoiceDates = currentInvoice ?? {
+              id: "",
+              cardId: card.id,
+              dueMonth: `${selectedMonth}-01`,
+              ...cardInvoiceDates(selectedMonth, card),
+            };
+            const invoiceStatus = currentInvoice
+              ? invoiceSummary(currentInvoice, store.txs, card).status
+              : "Sem lançamentos";
 
             return (
               <article key={card.id} className="rounded-xl border bg-card p-4 sm:p-5">
@@ -229,7 +243,8 @@ function Cartoes() {
                   </div>
                   <div className="rounded-lg bg-secondary/70 p-3">
                     <p className="text-xs text-muted-foreground">
-                      Fatura de {monthLabel(monthDate(selectedMonth))}
+                      Fatura de {monthLabel(monthDate(selectedMonth))} · vence{" "}
+                      {fmtDate(invoiceDates.dueDate)}
                     </p>
                     <p className="mt-1 text-lg font-bold">{brl(invoiceTotal)}</p>
                   </div>
@@ -320,7 +335,29 @@ function Cartoes() {
         </div>
       )}
 
-      <InvoiceDialog invoice={invoice} onClose={() => setInvoice(null)} />
+      <InvoiceDialog
+        invoice={invoice}
+        onClose={() => setInvoice(null)}
+        onEdit={(transaction) => {
+          setInvoice(null);
+          openTransaction(transaction);
+        }}
+        onPay={(card, invoiceRecord) => setPaymentInvoice({ card, invoice: invoiceRecord })}
+        onEditPayment={(card, invoiceRecord, payment) => {
+          setInvoice(null);
+          setPaymentInvoice({ card, invoice: invoiceRecord });
+          setEditingPayment(payment);
+        }}
+      />
+      <PaymentDialog
+        card={paymentInvoice?.card ?? null}
+        invoice={paymentInvoice?.invoice ?? null}
+        payment={editingPayment}
+        onClose={() => {
+          setPaymentInvoice(null);
+          setEditingPayment(null);
+        }}
+      />
       <CardDialog
         open={config.open}
         card={config.card}
@@ -333,53 +370,50 @@ function Cartoes() {
 function InvoiceDialog({
   invoice,
   onClose,
+  onEdit,
+  onPay,
+  onEditPayment,
 }: {
   invoice: InvoiceSelection | null;
   onClose: () => void;
+  onEdit: (transaction: Tx) => void;
+  onPay: (card: CardC, invoice: CreditCardInvoice) => void;
+  onEditPayment: (card: CardC, invoice: CreditCardInvoice, payment: Tx) => void;
 }) {
   const store = useStore();
-  const items = invoice
-    ? store.txs
-        .filter(
-          (transaction) =>
-            transaction.cardId === invoice.card.id &&
-            cardInvoiceKey(transaction.date, invoice.card) === invoice.month,
-        )
-        .sort((a, b) => a.date.localeCompare(b.date))
-    : [];
-  const unpaid = items.filter((item) => !item.paid);
-  const total = unpaid.reduce((sum, item) => sum + item.amount, 0);
-  const paidTotal = items.filter((item) => item.paid).reduce((sum, item) => sum + item.amount, 0);
-  const status = invoice ? getInvoiceStatus(invoice.card, invoice.month, items) : "Sem lançamentos";
-  const dates = invoice ? cardInvoiceDates(invoice.month, invoice.card) : null;
-
-  const pay = () => {
-    if (!invoice || !unpaid.length || !confirm("Confirmar pagamento desta fatura?")) return;
-    const unpaidIds = new Set(unpaid.map((item) => item.id));
-    setState((current) => ({
-      ...current,
-      txs: current.txs.map((transaction) =>
-        unpaidIds.has(transaction.id) ? { ...transaction, paid: true } : transaction,
-      ),
-    }));
-    toast.success("Fatura marcada como paga.");
-    onClose();
-  };
+  const invoiceRecord = invoice
+    ? store.invoices.find(
+        (item) => item.cardId === invoice.card.id && invoiceMonth(item) === invoice.month,
+      )
+    : undefined;
+  const summaryInvoice =
+    invoice &&
+    (invoiceRecord ?? {
+      id: "",
+      cardId: invoice.card.id,
+      dueMonth: `${invoice.month}-01`,
+      ...cardInvoiceDates(invoice.month, invoice.card),
+    });
+  const summary = summaryInvoice ? invoiceSummary(summaryInvoice, store.txs, invoice?.card) : null;
+  const items = summary?.items.sort((a, b) => a.date.localeCompare(b.date)) ?? [];
+  const paymentItems = summary?.payments ?? [];
+  const dates = summaryInvoice
+    ? { closingDate: summaryInvoice.closingDate, dueDate: summaryInvoice.dueDate }
+    : null;
 
   return (
     <Dialog open={!!invoice} onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            Fatura — {invoice?.card.name}
-            {invoice ? ` · ${monthLabel(monthDate(invoice.month))}` : ""}
+            Fatura de {invoice ? monthLabel(monthDate(invoice.month)) : ""} · {invoice?.card.name}
           </DialogTitle>
         </DialogHeader>
         {dates && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>Fechamento: {fmtDate(dates.closingDate)}</span>
-            <span>Vencimento: {fmtDate(dates.dueDate)}</span>
-            <span>Status: {status}</span>
+            <span>Vence {fmtDate(dates.dueDate)}</span>
+            <span>Status: {summary?.status ?? "Sem lançamentos"}</span>
           </div>
         )}
         {items.length === 0 ? (
@@ -394,16 +428,16 @@ function InvoiceDialog({
           <div className="max-h-72 divide-y overflow-auto">
             {items.map((item) => (
               <div key={item.id} className="flex items-start justify-between gap-3 py-2 text-sm">
-                <div className="min-w-0">
+                <button className="min-w-0 text-left" onClick={() => onEdit(item)}>
                   <p className="break-words font-medium">{item.description}</p>
                   <p className="text-xs text-muted-foreground">
                     {fmtDate(item.date)}
                     {item.installmentCount && item.installmentCount > 1
                       ? ` · Parcela ${item.installmentNumber} de ${item.installmentCount}`
                       : ""}
-                    {item.paid ? " · Paga" : " · Em aberto"}
+                    {item.paid ? " · Paga (registro antigo)" : ""}
                   </p>
-                </div>
+                </button>
                 <span className={cn("shrink-0 font-medium", item.paid && "text-muted-foreground")}>
                   {brl(item.amount)}
                 </span>
@@ -411,21 +445,220 @@ function InvoiceDialog({
             ))}
           </div>
         )}
+        {paymentItems.length > 0 && (
+          <div className="space-y-2 border-t pt-3">
+            <h4 className="text-sm font-semibold">Pagamentos registrados</h4>
+            {paymentItems.map((payment) => (
+              <button
+                key={payment.id}
+                className="flex w-full justify-between gap-3 text-left text-sm hover:text-primary"
+                aria-label={`Editar pagamento de ${brl(payment.amount)} em ${fmtDate(payment.date)}`}
+                onClick={() => {
+                  if (invoice && invoiceRecord) {
+                    onEditPayment(invoice.card, invoiceRecord, payment);
+                  }
+                }}
+              >
+                <span>
+                  {fmtDate(payment.date)} ·{" "}
+                  {store.banks.find((bank) => bank.id === payment.bankId)?.name ?? "Conta"}
+                </span>
+                <span>{brl(payment.amount)}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="space-y-1 border-t pt-3 text-sm">
-          {paidTotal > 0 && (
+          {summary && summary.settled > 0 && (
             <div className="flex justify-between text-muted-foreground">
               <span>Já pago</span>
-              <span>{brl(paidTotal)}</span>
+              <span>{brl(summary.settled)}</span>
             </div>
           )}
           <div className="flex justify-between font-semibold">
-            <span>Em aberto</span>
-            <span>{brl(total)}</span>
+            <span>Total da fatura</span>
+            <span>{brl(summary?.total ?? 0)}</span>
+          </div>
+          <div className="flex justify-between font-semibold">
+            <span>Saldo em aberto</span>
+            <span>{brl(summary?.outstanding ?? 0)}</span>
           </div>
         </div>
         <DialogFooter>
-          <Button disabled={!total} onClick={pay}>
-            Marcar fatura como paga
+          <Button
+            disabled={!invoice || !invoiceRecord || !summary?.outstanding}
+            onClick={() => {
+              if (invoice && invoiceRecord) onPay(invoice.card, invoiceRecord);
+            }}
+          >
+            Registrar pagamento
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PaymentDialog({
+  card,
+  invoice,
+  payment,
+  onClose,
+}: {
+  card: CardC | null;
+  invoice: CreditCardInvoice | null;
+  payment: Tx | null;
+  onClose: () => void;
+}) {
+  const store = useStore();
+  const [bankId, setBankId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(todayKey);
+  const summary = invoice ? invoiceSummary(invoice, store.txs, card ?? undefined) : null;
+  const outstanding = summary?.outstanding ?? 0;
+
+  useEffect(() => {
+    if (!invoice) return;
+    setBankId(payment?.bankId ?? store.banks[0]?.id ?? "");
+    setAmount(((payment?.amount ?? outstanding) / 100).toFixed(2).replace(".", ","));
+    setDate(payment?.date ?? todayKey());
+  }, [invoice, payment, store.banks, outstanding]);
+
+  const save = () => {
+    if (!card || !invoice || !summary) return;
+    const cents = Math.round(Number(amount.replace(/\./g, "").replace(",", ".")) * 100);
+    if (!bankId) {
+      toast.error("Selecione a conta de origem.");
+      return;
+    }
+    const maximum = summary.outstanding + (payment?.amount ?? 0);
+    if (!Number.isInteger(cents) || cents <= 0 || cents > maximum) {
+      toast.error("Informe um valor positivo que não ultrapasse o saldo em aberto.");
+      return;
+    }
+    const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    if (!dateParts) {
+      toast.error("Informe uma data válida.");
+      return;
+    }
+    const paymentDate = new Date(
+      Number(dateParts[1]),
+      Number(dateParts[2]) - 1,
+      Number(dateParts[3]),
+    );
+    if (
+      paymentDate.getFullYear() !== Number(dateParts[1]) ||
+      paymentDate.getMonth() !== Number(dateParts[2]) - 1 ||
+      paymentDate.getDate() !== Number(dateParts[3])
+    ) {
+      toast.error("Informe uma data válida.");
+      return;
+    }
+    if (date > todayKey()) {
+      toast.error("A data do pagamento não pode estar no futuro.");
+      return;
+    }
+    const updatedPayment: Tx = {
+      ...(payment ?? {
+        id: uid(),
+        description: `Pagamento de fatura · ${card.name}`,
+        type: "pagamento_fatura",
+        categoryId: "",
+        invoiceId: invoice.id,
+      }),
+      amount: cents,
+      date,
+      bankId,
+    };
+    setState((current) => ({
+      ...current,
+      txs: payment
+        ? current.txs.map((transaction) =>
+            transaction.id === payment.id ? updatedPayment : transaction,
+          )
+        : [...current.txs, updatedPayment],
+    }));
+    toast.success(payment ? "Pagamento atualizado." : "Pagamento registrado.");
+    onClose();
+  };
+
+  const remove = () => {
+    if (
+      !payment ||
+      !confirm("Excluir este pagamento? A fatura e o saldo da conta serão recalculados.")
+    ) {
+      return;
+    }
+    setState((current) => ({
+      ...current,
+      txs: current.txs.filter((transaction) => transaction.id !== payment.id),
+    }));
+    toast.success("Pagamento excluído.");
+    onClose();
+  };
+
+  return (
+    <Dialog open={!!invoice} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {payment ? "Editar pagamento da fatura" : "Registrar pagamento da fatura"}
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          {card?.name} · Fatura de {invoice ? monthLabel(monthDate(invoiceMonth(invoice))) : ""}
+          {summary ? ` · Saldo em aberto: ${brl(summary.outstanding)}` : ""}
+        </p>
+        <div className="grid gap-3">
+          <div>
+            <Label htmlFor="invoice-payment-bank">Conta de origem</Label>
+            <select
+              id="invoice-payment-bank"
+              className={inputClass}
+              value={bankId}
+              onChange={(event) => setBankId(event.target.value)}
+            >
+              <option value="">Selecione uma conta</option>
+              {store.banks.map((bank) => (
+                <option key={bank.id} value={bank.id}>
+                  {bank.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="invoice-payment-amount">Valor (R$)</Label>
+            <Input
+              id="invoice-payment-amount"
+              inputMode="decimal"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="invoice-payment-date">Data do pagamento</Label>
+            <Input
+              id="invoice-payment-date"
+              type="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          {payment && (
+            <Button variant="destructive" onClick={remove}>
+              Excluir pagamento
+            </Button>
+          )}
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={save}
+            disabled={!store.banks.length || (!summary?.outstanding && !payment)}
+          >
+            {payment ? "Salvar alterações" : "Confirmar pagamento"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -490,7 +723,16 @@ function CardDialog({
 
   const remove = () => {
     if (!card) return;
-    if (store.txs.some((transaction) => transaction.cardId === card.id)) {
+    const invoiceIds = new Set(
+      store.invoices.filter((invoice) => invoice.cardId === card.id).map((invoice) => invoice.id),
+    );
+    if (
+      store.txs.some(
+        (transaction) =>
+          transaction.cardId === card.id ||
+          (transaction.invoiceId !== undefined && invoiceIds.has(transaction.invoiceId)),
+      )
+    ) {
       toast.error("Este cartão possui transações vinculadas e não pode ser excluído.");
       return;
     }
@@ -498,6 +740,7 @@ function CardDialog({
     setState((current) => ({
       ...current,
       cards: current.cards.filter((item) => item.id !== card.id),
+      invoices: current.invoices.filter((invoice) => invoice.cardId !== card.id),
     }));
     toast.success("Cartão excluído.");
     onOpenChange(false);

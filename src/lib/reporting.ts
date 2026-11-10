@@ -1,4 +1,4 @@
-import { monthKey, type Tx } from "@/lib/store";
+import { monthKey, transactionReferenceMonth, type Tx } from "@/lib/store";
 
 export interface ReportSource {
   type: "bank" | "card";
@@ -8,7 +8,9 @@ export interface ReportSource {
 function periodTotals(transactions: Tx[], month: string, source?: ReportSource) {
   const list = transactions.filter(
     (transaction) =>
-      transaction.date.startsWith(month) &&
+      (transaction.type === "receita"
+        ? transactionReferenceMonth(transaction)
+        : transaction.date.slice(0, 7)) === month &&
       (!source ||
         (source.type === "bank"
           ? transaction.bankId === source.id
@@ -20,7 +22,18 @@ function periodTotals(transactions: Tx[], month: string, source?: ReportSource) 
   const expense = list
     .filter((transaction) => transaction.type === "despesa")
     .reduce((sum, transaction) => sum + transaction.amount, 0);
-  return { list, income, expense, balance: income - expense };
+  const cashIncome = transactions
+    .filter(
+      (transaction) =>
+        transaction.type === "receita" &&
+        transaction.date.startsWith(month) &&
+        (!source ||
+          (source.type === "bank"
+            ? transaction.bankId === source.id
+            : transaction.cardId === source.id)),
+    )
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  return { list, income, cashIncome, expense, balance: cashIncome - expense };
 }
 
 export interface PeriodComparison {
@@ -64,10 +77,6 @@ export function compareMonthlyPeriods(
   };
 }
 
-export function reportMonthTotals(
-  transactions: Tx[],
-  month: string,
-  source?: ReportSource,
-) {
+export function reportMonthTotals(transactions: Tx[], month: string, source?: ReportSource) {
   return periodTotals(transactions, month, source);
 }

@@ -19,7 +19,7 @@ import { Download, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { MonthPicker, PageTitle } from "@/components/AppShell";
-import { brl, monthKey, useStore } from "@/lib/store";
+import { brl, monthKey, monthLabel, transactionReferenceMonth, useStore } from "@/lib/store";
 import { compareMonthlyPeriods, reportMonthTotals } from "@/lib/reporting";
 import { cn } from "@/lib/utils";
 
@@ -53,10 +53,12 @@ function Relatorios() {
   const [source, setSource] = useState("");
   const [active, setActive] = useState<string | null>(null);
   const selectedMonth = monthKey(date);
-  const selectedSource = source ? {
-    type: source.startsWith("bank:") ? "bank" as const : "card" as const,
-    id: source.slice(source.indexOf(":") + 1),
-  } : undefined;
+  const selectedSource = source
+    ? {
+        type: source.startsWith("bank:") ? ("bank" as const) : ("card" as const),
+        id: source.slice(source.indexOf(":") + 1),
+      }
+    : undefined;
   const { list } = reportMonthTotals(s.txs, selectedMonth, selectedSource);
   const comparison = compareMonthlyPeriods(s.txs, selectedMonth, selectedSource);
   const data = useMemo(() => {
@@ -90,9 +92,7 @@ function Relatorios() {
         const establishment = transaction.description.trim() || "Sem descrição";
         totals.set(establishment, (totals.get(establishment) ?? 0) + transaction.amount);
       });
-    return [...totals]
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
+    return [...totals].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   }, [list]);
   const total = data.reduce((sum, item) => sum + item.value, 0);
   const average = data.length ? total / data.length : 0;
@@ -116,6 +116,18 @@ function Relatorios() {
   });
   const annualIncome = annual.reduce((sum, month) => sum + month.Receitas, 0);
   const annualExpense = annual.reduce((sum, month) => sum + month.Despesas, 0);
+  const annualCashIncome = s.txs
+    .filter(
+      (transaction) =>
+        transaction.type === "receita" &&
+        transaction.date.startsWith(String(date.getFullYear())) &&
+        (!selectedSource ||
+          (selectedSource.type === "bank"
+            ? transaction.bankId === selectedSource.id
+            : transaction.cardId === selectedSource.id)),
+    )
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const annualCashBalance = annualCashIncome - annualExpense;
   const sourceLabel = selectedSource
     ? selectedSource.type === "bank"
       ? s.banks.find((item) => item.id === selectedSource.id)?.name
@@ -132,27 +144,50 @@ function Relatorios() {
     try {
       const XLSX = await import("xlsx");
       const yearTransactions = s.txs
-        .filter((transaction) => transaction.date.startsWith(String(date.getFullYear())))
         .filter((transaction) =>
-          !selectedSource ||
-          (selectedSource.type === "bank"
-            ? transaction.bankId === selectedSource.id
-            : transaction.cardId === selectedSource.id),
+          (transaction.type === "receita"
+            ? transactionReferenceMonth(transaction)
+            : transaction.date.slice(0, 7)
+          ).startsWith(String(date.getFullYear())),
+        )
+        .filter(
+          (transaction) =>
+            !selectedSource ||
+            (selectedSource.type === "bank"
+              ? transaction.bankId === selectedSource.id
+              : transaction.cardId === selectedSource.id),
         )
         .sort((a, b) => a.date.localeCompare(b.date));
       const transactionRows = yearTransactions.map((transaction) => ({
         Data: transaction.date,
+        "Mês de referência":
+          transaction.type === "receita"
+            ? monthLabel(
+                new Date(
+                  Number(transactionReferenceMonth(transaction).slice(0, 4)),
+                  Number(transactionReferenceMonth(transaction).slice(5, 7)) - 1,
+                  1,
+                ),
+              )
+            : "",
         Descrição: transaction.description,
-        Tipo: transaction.type === "receita" ? "Receita" : "Despesa",
+        Tipo:
+          transaction.type === "receita"
+            ? "Receita"
+            : transaction.type === "pagamento_fatura"
+              ? "Pagamento de fatura"
+              : "Despesa",
         "Valor (R$)": transaction.amount / 100,
         Categoria:
           s.categories.find((category) => category.id === transaction.categoryId)?.name ??
           "Sem categoria",
         Instituição: transaction.bankId
-          ? s.banks.find((item) => item.id === transaction.bankId)?.name ?? ""
-          : s.cards.find((item) => item.id === transaction.cardId)?.name ?? "",
+          ? (s.banks.find((item) => item.id === transaction.bankId)?.name ?? "")
+          : (s.cards.find((item) => item.id === transaction.cardId)?.name ?? ""),
       }));
-      const annualExpenses = yearTransactions.filter((transaction) => transaction.type === "despesa");
+      const annualExpenses = yearTransactions.filter(
+        (transaction) => transaction.type === "despesa",
+      );
       const categoryTotals = new Map<string, number>();
       const merchantTotals = new Map<string, number>();
       annualExpenses.forEach((transaction) => {
@@ -161,9 +196,15 @@ function Relatorios() {
           (categoryTotals.get(transaction.categoryId) ?? 0) + transaction.amount,
         );
         const establishment = transaction.description.trim() || "Sem descrição";
-        merchantTotals.set(establishment, (merchantTotals.get(establishment) ?? 0) + transaction.amount);
+        merchantTotals.set(
+          establishment,
+          (merchantTotals.get(establishment) ?? 0) + transaction.amount,
+        );
       });
-      const annualExpenseTotal = [...categoryTotals.values()].reduce((sum, amount) => sum + amount, 0);
+      const annualExpenseTotal = [...categoryTotals.values()].reduce(
+        (sum, amount) => sum + amount,
+        0,
+      );
       const categoryRows = [...categoryTotals].map(([categoryId, amount]) => ({
         Categoria:
           s.categories.find((category) => category.id === categoryId)?.name ?? "Sem categoria",
@@ -183,7 +224,7 @@ function Relatorios() {
         { Indicador: "Ano", Valor: date.getFullYear() },
         { Indicador: "Receitas anuais (R$)", Valor: annualIncome },
         { Indicador: "Despesas anuais (R$)", Valor: annualExpense },
-        { Indicador: "Saldo anual (R$)", Valor: annualIncome - annualExpense },
+        { Indicador: "Saldo de caixa anual (R$)", Valor: annualCashBalance },
         { Indicador: `Despesas de ${selectedMonth} (R$)`, Valor: total / 100 },
         { Indicador: "Receitas do mês anterior (R$)", Valor: comparison.previous.income / 100 },
         { Indicador: "Despesas do mês anterior (R$)", Valor: comparison.previous.expense / 100 },
@@ -191,7 +232,9 @@ function Relatorios() {
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Resumo");
       XLSX.utils.book_append_sheet(
         workbook,
-        XLSX.utils.json_to_sheet(categoryRows.length ? categoryRows : [{ Categoria: "Sem despesas" }]),
+        XLSX.utils.json_to_sheet(
+          categoryRows.length ? categoryRows : [{ Categoria: "Sem despesas" }],
+        ),
         "Categorias",
       );
       XLSX.utils.book_append_sheet(
@@ -218,7 +261,10 @@ function Relatorios() {
   return (
     <div className="report-print-area space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <PageTitle title="Relatórios" sub="Visualize seus gastos e receitas com gráficos detalhados" />
+        <PageTitle
+          title="Relatórios"
+          sub="Visualize seus gastos e receitas com gráficos detalhados"
+        />
         <div className="flex flex-wrap gap-2 print:hidden">
           <Button size="sm" variant="outline" onClick={() => window.print()}>
             <Printer className="h-4 w-4" />
@@ -249,7 +295,7 @@ function Relatorios() {
                     ? "Visão anual"
                     : item === "estabelecimentos"
                       ? "Estabelecimentos"
-                    : "Tendência"}
+                      : "Tendência"}
             </Button>
           ))}
         </div>
@@ -259,10 +305,7 @@ function Relatorios() {
         {stats.map((stat) => (
           <div
             key={stat.label}
-            className={cn(
-              "rounded-xl border border-l-4 border-border bg-card p-4",
-              stat.color,
-            )}
+            className={cn("rounded-xl border border-l-4 border-border bg-card p-4", stat.color)}
           >
             <div className="text-sm text-muted-foreground">{stat.label}</div>
             <div className="mt-2 text-xl font-bold">{stat.value}</div>
@@ -309,13 +352,17 @@ function Relatorios() {
         >
           <option value="">Todas as instituições</option>
           <optgroup label="Bancos">
-          {s.banks.map((item) => (
-            <option key={item.id} value={`bank:${item.id}`}>{item.name}</option>
-          ))}
+            {s.banks.map((item) => (
+              <option key={item.id} value={`bank:${item.id}`}>
+                {item.name}
+              </option>
+            ))}
           </optgroup>
           <optgroup label="Cartões">
             {s.cards.map((item) => (
-              <option key={item.id} value={`card:${item.id}`}>{item.name}</option>
+              <option key={item.id} value={`card:${item.id}`}>
+                {item.name}
+              </option>
             ))}
           </optgroup>
         </select>
@@ -330,14 +377,14 @@ function Relatorios() {
               ? "Tendência — últimos 12 meses"
               : mode === "estabelecimentos"
                 ? "Despesas por estabelecimento"
-              : "Despesas por categoria"}
+                : "Despesas por categoria"}
         </h3>
         {mode === "anual" ? (
           <>
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
               <AnnualSummary label="Receitas no ano" amount={annualIncome * 100} />
               <AnnualSummary label="Despesas no ano" amount={annualExpense * 100} />
-              <AnnualSummary label="Saldo anual" amount={(annualIncome - annualExpense) * 100} />
+              <AnnualSummary label="Saldo de caixa no ano" amount={annualCashBalance * 100} />
             </div>
             <div className="h-80">
               <ResponsiveContainer>
@@ -369,14 +416,19 @@ function Relatorios() {
           </div>
         ) : mode === "estabelecimentos" ? (
           merchantData.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Sem despesas neste período.</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              Sem despesas neste período.
+            </p>
           ) : (
             <div style={{ height: Math.max(200, Math.min(merchantData.length, 12) * 44) }}>
               <ResponsiveContainer>
-                <BarChart data={merchantData.slice(0, 12).map((item) => ({
-                  ...item,
-                  valueInReais: item.value / 100,
-                }))} layout="vertical">
+                <BarChart
+                  data={merchantData.slice(0, 12).map((item) => ({
+                    ...item,
+                    valueInReais: item.value / 100,
+                  }))}
+                  layout="vertical"
+                >
                   <XAxis type="number" />
                   <YAxis type="category" dataKey="name" width={130} />
                   <Tooltip formatter={(value: number) => brl(value * 100)} />
@@ -386,16 +438,23 @@ function Relatorios() {
             </div>
           )
         ) : data.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">Sem despesas neste período.</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            Sem despesas neste período.
+          </p>
         ) : mode === "barras" ? (
           <div style={{ height: Math.max(200, data.length * 44) }}>
             <ResponsiveContainer>
-              <BarChart data={data.map((item) => ({ ...item, valueInReais: item.value / 100 }))} layout="vertical">
+              <BarChart
+                data={data.map((item) => ({ ...item, valueInReais: item.value / 100 }))}
+                layout="vertical"
+              >
                 <XAxis type="number" />
                 <YAxis type="category" dataKey="name" width={110} />
                 <Tooltip formatter={(value: number) => brl(value * 100)} />
                 <Bar dataKey="valueInReais" name="Despesas" radius={4}>
-                  {data.map((item) => <Cell key={item.id} fill={item.color} />)}
+                  {data.map((item) => (
+                    <Cell key={item.id} fill={item.color} />
+                  ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -405,7 +464,13 @@ function Relatorios() {
             <div className="relative h-72">
               <ResponsiveContainer>
                 <PieChart>
-                  <Pie data={data} dataKey="value" innerRadius="60%" outerRadius="90%" stroke="none">
+                  <Pie
+                    data={data}
+                    dataKey="value"
+                    innerRadius="60%"
+                    outerRadius="90%"
+                    stroke="none"
+                  >
                     {data.map((item) => (
                       <Cell
                         key={item.id}

@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 export type TxType = "receita" | "despesa";
+export type TransactionType = TxType | "pagamento_fatura";
 export type RecurrenceFrequency = "weekly" | "monthly" | "yearly";
 export interface Category {
   id: string;
@@ -27,15 +28,24 @@ export interface CardC {
   closing: number;
   due: number;
 }
+export interface CreditCardInvoice {
+  id: string;
+  cardId: string;
+  dueMonth: string;
+  closingDate: string;
+  dueDate: string;
+}
 export interface Tx {
   id: string;
   description: string;
   amount: number;
-  type: TxType;
+  type: TransactionType;
   date: string;
+  referenceMonth?: string | undefined;
   categoryId: string;
   bankId?: string | undefined;
   cardId?: string | undefined;
+  invoiceId?: string | undefined;
   paid?: boolean | undefined;
   installmentGroupId?: string | undefined;
   installmentNumber?: number | undefined;
@@ -50,6 +60,7 @@ export interface State {
   categories: Category[];
   banks: Bank[];
   cards: CardC[];
+  invoices: CreditCardInvoice[];
   txs: Tx[];
 }
 
@@ -89,7 +100,7 @@ function seedCategories(): Category[] {
   }));
 }
 
-const empty: State = { categories: [], banks: [], cards: [], txs: [] };
+const empty: State = { categories: [], banks: [], cards: [], invoices: [], txs: [] };
 let state: State = empty;
 let loadedFor: string | null = null;
 const listeners = new Set<() => void>();
@@ -125,6 +136,14 @@ const toRow = {
     closing_day: c.closing,
     due_day: c.due,
   }),
+  invoices: (i: CreditCardInvoice, u: string) => ({
+    id: i.id,
+    user_id: u,
+    card_id: i.cardId,
+    due_month: i.dueMonth,
+    closing_date: i.closingDate,
+    due_date: i.dueDate,
+  }),
   transactions: (t: Tx, u: string) => ({
     id: t.id,
     user_id: u,
@@ -132,9 +151,11 @@ const toRow = {
     amount_cents: t.amount,
     type: t.type,
     date: t.date,
+    reference_month: t.referenceMonth ?? null,
     category_id: t.categoryId || null,
     bank_id: t.bankId ?? null,
     card_id: t.cardId ?? null,
+    invoice_id: t.invoiceId ?? null,
     paid: !!t.paid,
     installment_group_id: t.installmentGroupId ?? null,
     installment_number: t.installmentNumber ?? 1,
@@ -152,14 +173,15 @@ export async function loadUserData(userId: string) {
   if (loadedFor === userId) return;
   const { supabase } = await import("@/integrations/supabase/client");
   const db = supabase;
-  const [c, b, k, t, settings] = await Promise.all([
+  const [c, b, k, i, t, settings] = await Promise.all([
     db.from("categories").select("*").eq("user_id", userId).order("created_at"),
     db.from("banks").select("*").eq("user_id", userId).order("created_at"),
     db.from("cards").select("*").eq("user_id", userId).order("created_at"),
+    db.from("credit_card_invoices").select("*").eq("user_id", userId).order("due_month"),
     db.from("transactions").select("*").eq("user_id", userId).order("date", { ascending: false }),
     db.from("user_settings").select("onboarding_complete").eq("user_id", userId).maybeSingle(),
   ]);
-  const err = c.error || b.error || k.error || t.error || settings.error;
+  const err = c.error || b.error || k.error || i.error || t.error || settings.error;
   if (err) throw err;
   let next: State = {
     categories: (c.data ?? []).map((r) => ({
@@ -187,15 +209,24 @@ export async function loadUserData(userId: string) {
       closing: r.closing_day,
       due: r.due_day,
     })),
+    invoices: (i.data ?? []).map((r) => ({
+      id: r.id,
+      cardId: r.card_id,
+      dueMonth: r.due_month,
+      closingDate: r.closing_date,
+      dueDate: r.due_date,
+    })),
     txs: (t.data ?? []).map((r) => ({
       id: r.id,
       description: r.description,
       amount: Number(r.amount_cents),
-      type: r.type as TxType,
+      type: r.type as TransactionType,
       date: r.date,
+      referenceMonth: r.reference_month ?? undefined,
       categoryId: r.category_id ?? "",
       bankId: r.bank_id ?? undefined,
       cardId: r.card_id ?? undefined,
+      invoiceId: r.invoice_id ?? undefined,
       paid: r.paid,
       installmentGroupId: r.installment_group_id ?? undefined,
       installmentNumber: r.installment_number,
@@ -225,10 +256,21 @@ export function resetStore() {
 }
 
 type TableKey = keyof typeof toRow;
+const tableName: Record<
+  TableKey,
+  "categories" | "banks" | "cards" | "credit_card_invoices" | "transactions"
+> = {
+  categories: "categories",
+  banks: "banks",
+  cards: "cards",
+  invoices: "credit_card_invoices",
+  transactions: "transactions",
+};
 const stateKey: Record<TableKey, keyof State> = {
   categories: "categories",
   banks: "banks",
   cards: "cards",
+  invoices: "invoices",
   transactions: "txs",
 };
 
@@ -244,7 +286,7 @@ export function setState(fn: (s: State) => State) {
     const { supabase } = await import("@/integrations/supabase/client");
     const db = supabase;
     // Write order respects references: parents first for upserts, children first for deletes.
-    const order: TableKey[] = ["categories", "banks", "cards", "transactions"];
+    const order: TableKey[] = ["categories", "banks", "cards", "invoices", "transactions"];
     try {
       for (const tbl of order) {
         const k = stateKey[tbl];
@@ -252,7 +294,7 @@ export function setState(fn: (s: State) => State) {
         const changed = (next[k] as { id: string }[]).filter((x) => before.get(x.id) !== x);
         if (changed.length) {
           const { error } = await db
-            .from(tbl)
+            .from(tableName[tbl])
             .upsert(
               changed.map((x) => (toRow[tbl] as (v: unknown, u: string) => never)(x, userId)),
             );
@@ -266,7 +308,7 @@ export function setState(fn: (s: State) => State) {
           .filter((x) => !keep.has(x.id))
           .map((x) => x.id);
         if (removed.length) {
-          const { error } = await db.from(tbl).delete().in("id", removed);
+          const { error } = await db.from(tableName[tbl]).delete().in("id", removed);
           if (error) throw error;
         }
       }
@@ -360,6 +402,59 @@ export function cardInvoiceDates(
   return { closingDate: dateToIso(closingDate), dueDate: dateToIso(dueDate) };
 }
 
+export function invoiceMonth(invoice: CreditCardInvoice): string {
+  return invoice.dueMonth.slice(0, 7);
+}
+
+export function transactionInvoiceMonth(
+  transaction: Tx,
+  card: CardC,
+  invoices: CreditCardInvoice[],
+): string {
+  const invoice = transaction.invoiceId
+    ? invoices.find((item) => item.id === transaction.invoiceId)
+    : undefined;
+  return invoice ? invoiceMonth(invoice) : cardInvoiceKey(transaction.date, card);
+}
+
+export function invoiceSummary(
+  invoice: CreditCardInvoice,
+  transactions: Tx[],
+  card?: CardC,
+  today = dateToIso(new Date()),
+) {
+  const month = invoiceMonth(invoice);
+  const items = transactions.filter(
+    (transaction) =>
+      transaction.type === "despesa" &&
+      transaction.cardId === invoice.cardId &&
+      (transaction.invoiceId === invoice.id ||
+        (!transaction.invoiceId && card && cardInvoiceKey(transaction.date, card) === month)),
+  );
+  const payments = transactions.filter(
+    (transaction) =>
+      transaction.type === "pagamento_fatura" && transaction.invoiceId === invoice.id,
+  );
+  const total = items.reduce((sum, item) => sum + item.amount, 0);
+  const legacyPaid = items.filter((item) => item.paid).reduce((sum, item) => sum + item.amount, 0);
+  const paymentTotal = payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const settled = legacyPaid + paymentTotal;
+  const outstanding = Math.max(0, total - settled);
+  const status =
+    items.length === 0
+      ? "Sem lançamentos"
+      : outstanding <= 0
+        ? "Paga"
+        : settled > 0
+          ? "Parcialmente paga"
+          : invoice.dueDate < today
+            ? "Vencida"
+            : invoice.closingDate <= today
+              ? "Fechada · em aberto"
+              : "Aberta";
+  return { items, payments, total, settled, outstanding, status };
+}
+
 function parseMonthKey(key: string): { year: number; month: number } {
   const parts = /^(\d{4})-(\d{2})$/.exec(key);
   if (!parts) throw new RangeError(`Invalid month key: ${key}`);
@@ -396,10 +491,27 @@ export function addRecurrenceDate(
 
 /** Totais do mês. Compras de cartão contam como saída pela data da compra. */
 export function monthTotals(txs: Tx[], month: string, bankId?: string) {
-  const list = txs.filter((t) => t.date.startsWith(month) && (!bankId || t.bankId === bankId));
+  const list = txs.filter(
+    (transaction) =>
+      (transaction.type === "receita"
+        ? transactionReferenceMonth(transaction)
+        : transaction.date.slice(0, 7)) === month &&
+      (!bankId || transaction.bankId === bankId),
+  );
   const income = list.filter((t) => t.type === "receita").reduce((a, t) => a + t.amount, 0);
   const expense = list.filter((t) => t.type === "despesa").reduce((a, t) => a + t.amount, 0);
-  return { list, income, expense, balance: income - expense };
+  const cashIncome = txs
+    .filter(
+      (transaction) =>
+        transaction.type === "receita" &&
+        transaction.date.startsWith(month) &&
+        (!bankId || transaction.bankId === bankId),
+    )
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  return { list, income, cashIncome, expense, balance: cashIncome - expense };
+}
+export function transactionReferenceMonth(transaction: Tx): string {
+  return transaction.referenceMonth?.slice(0, 7) ?? transaction.date.slice(0, 7);
 }
 /** Saldo do banco considera só transações com bankId. */
 export function bankBalance(s: State, bankId: string) {
@@ -412,8 +524,40 @@ export function bankBalance(s: State, bankId: string) {
 /** Limite usado = compras de cartão ainda não pagas. */
 export function cardUsed(s: State, cardId: string) {
   const today = dateToIso(new Date());
-  return s.txs
-    .filter((t) => t.cardId === cardId && !t.paid && (!t.recurrenceGroupId || t.date <= today))
-    .reduce((a, t) => a + t.amount, 0);
+  const card = s.cards.find((item) => item.id === cardId);
+  const invoiceIds = new Set(
+    s.invoices.filter((invoice) => invoice.cardId === cardId).map((invoice) => invoice.id),
+  );
+  const outstandingByInvoice = new Map<string, number>();
+  for (const transaction of s.txs) {
+    if (
+      transaction.cardId !== cardId ||
+      transaction.type !== "despesa" ||
+      transaction.paid ||
+      (transaction.recurrenceGroupId && transaction.date > today)
+    ) {
+      continue;
+    }
+    const key =
+      transaction.invoiceId ??
+      (card ? cardInvoiceKey(transaction.date, card) : `unassigned:${transaction.id}`);
+    outstandingByInvoice.set(key, (outstandingByInvoice.get(key) ?? 0) + transaction.amount);
+  }
+  for (const transaction of s.txs) {
+    if (
+      transaction.type === "pagamento_fatura" &&
+      transaction.invoiceId &&
+      invoiceIds.has(transaction.invoiceId)
+    ) {
+      outstandingByInvoice.set(
+        transaction.invoiceId,
+        (outstandingByInvoice.get(transaction.invoiceId) ?? 0) - transaction.amount,
+      );
+    }
+  }
+  return [...outstandingByInvoice.values()].reduce(
+    (total, outstanding) => total + Math.max(0, outstanding),
+    0,
+  );
 }
 export { PALETTE };

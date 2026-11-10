@@ -80,6 +80,44 @@ export type Database = {
         };
         Relationships: [];
       };
+      credit_card_invoices: {
+        Row: {
+          card_id: string;
+          closing_date: string;
+          created_at: string;
+          due_date: string;
+          due_month: string;
+          id: string;
+          user_id: string;
+        };
+        Insert: {
+          card_id: string;
+          closing_date: string;
+          created_at?: string;
+          due_date: string;
+          due_month: string;
+          id?: string;
+          user_id?: string;
+        };
+        Update: {
+          card_id?: string;
+          closing_date?: string;
+          created_at?: string;
+          due_date?: string;
+          due_month?: string;
+          id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_invoices_user_card_fkey";
+            columns: ["user_id", "card_id"];
+            isOneToOne: false;
+            referencedRelation: "cards";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
       categories: {
         Row: {
           color: string;
@@ -292,6 +330,7 @@ export type Database = {
           date: string;
           description: string;
           id: string;
+          invoice_id: string | null;
           installment_count: number;
           installment_group_id: string | null;
           installment_number: number;
@@ -300,6 +339,7 @@ export type Database = {
           recurrence_frequency: string | null;
           recurrence_group_id: string | null;
           recurrence_number: number;
+          reference_month: string | null;
           type: string;
           user_id: string;
         };
@@ -313,6 +353,7 @@ export type Database = {
           date: string;
           description: string;
           id?: string;
+          invoice_id?: string | null;
           installment_count?: number;
           installment_group_id?: string | null;
           installment_number?: number;
@@ -321,6 +362,7 @@ export type Database = {
           recurrence_frequency?: string | null;
           recurrence_group_id?: string | null;
           recurrence_number?: number;
+          reference_month?: string | null;
           type: string;
           user_id?: string;
         };
@@ -334,6 +376,7 @@ export type Database = {
           date?: string;
           description?: string;
           id?: string;
+          invoice_id?: string | null;
           installment_count?: number;
           installment_group_id?: string | null;
           installment_number?: number;
@@ -342,6 +385,7 @@ export type Database = {
           recurrence_frequency?: string | null;
           recurrence_group_id?: string | null;
           recurrence_number?: number;
+          reference_month?: string | null;
           type?: string;
           user_id?: string;
         };
@@ -359,6 +403,13 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "cards";
             referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "transactions_invoice_id_fkey";
+            columns: ["user_id", "invoice_id"];
+            isOneToOne: false;
+            referencedRelation: "credit_card_invoices";
+            referencedColumns: ["user_id", "id"];
           },
           {
             foreignKeyName: "transactions_category_id_fkey";

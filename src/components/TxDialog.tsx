@@ -14,11 +14,20 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   addMonthsToDate,
   addRecurrenceDate,
+  cardInvoiceDates,
+  cardInvoiceKey,
+  invoiceSummary,
+  monthKey,
+  monthLabel,
+  transactionInvoiceMonth,
   setState,
   uid,
   useStore,
+  type CardC,
+  type CreditCardInvoice,
   type RecurrenceFrequency,
   type Tx,
+  type TxType,
 } from "@/lib/store";
 
 const sel = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
@@ -31,6 +40,23 @@ function isValidIsoDate(value: string): boolean {
   const day = Number(parts[3]);
   const date = new Date(year, month - 1, day);
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+function referenceMonthForDate(
+  receivedDate: string,
+  baseReceivedDate: string,
+  baseReferenceMonth: string,
+): string | undefined {
+  if (baseReferenceMonth === baseReceivedDate.slice(0, 7)) return undefined;
+  const baseYear = Number(baseReceivedDate.slice(0, 4));
+  const baseMonth = Number(baseReceivedDate.slice(5, 7));
+  const receivedYear = Number(receivedDate.slice(0, 4));
+  const receivedMonth = Number(receivedDate.slice(5, 7));
+  const referenceYear = Number(baseReferenceMonth.slice(0, 4));
+  const referenceMonth = Number(baseReferenceMonth.slice(5, 7));
+  const monthOffset = (receivedYear - baseYear) * 12 + receivedMonth - baseMonth;
+  const shifted = new Date(referenceYear, referenceMonth - 1 + monthOffset, 1);
+  return `${monthKey(shifted)}-01`;
 }
 
 export function TxDialog({
@@ -46,10 +72,12 @@ export function TxDialog({
   const empty = {
     description: "",
     amount: "",
-    type: "despesa",
+    type: "despesa" as TxType,
     date: new Date().toISOString().slice(0, 10),
+    referenceMonth: "",
     categoryId: s.categories.find((category) => category.type === "despesa")?.id ?? "",
     source: "b:" + (s.banks[0]?.id ?? ""),
+    invoiceMonth: "",
     installments: "1",
     recurrenceCount: "1",
     recurrenceFrequency: "monthly" as RecurrenceFrequency,
@@ -60,6 +88,44 @@ export function TxDialog({
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const categoriesForType = s.categories.filter((category) => category.type === f.type);
+  const selectedCard = f.source.startsWith("c:")
+    ? s.cards.find((card) => card.id === f.source.slice(2))
+    : undefined;
+  const suggestedInvoiceMonth =
+    selectedCard && f.type === "despesa" ? cardInvoiceKey(f.date, selectedCard) : "";
+  const selectedInvoiceMonth = f.invoiceMonth || suggestedInvoiceMonth;
+  const selectedReferenceMonth = f.referenceMonth || f.date.slice(0, 7);
+  const referenceMonthOptions = Array.from({ length: 49 }, (_, index) => {
+    const now = new Date();
+    return monthKey(new Date(now.getFullYear(), now.getMonth() + index - 36, 1));
+  });
+  if (!referenceMonthOptions.includes(selectedReferenceMonth)) {
+    referenceMonthOptions.push(selectedReferenceMonth);
+    referenceMonthOptions.sort();
+  }
+  const invoiceOptions = selectedCard
+    ? s.invoices
+        .filter((invoice) => invoice.cardId === selectedCard.id)
+        .filter(
+          (invoice) =>
+            invoiceSummary(invoice, s.txs, selectedCard).outstanding > 0 ||
+            invoice.dueMonth.slice(0, 7) === selectedInvoiceMonth,
+        )
+        .map((invoice) => ({
+          month: invoice.dueMonth.slice(0, 7),
+          label: invoiceSummary(invoice, s.txs, selectedCard).status,
+        }))
+    : [];
+  if (
+    selectedCard &&
+    selectedInvoiceMonth &&
+    !invoiceOptions.some((option) => option.month === selectedInvoiceMonth)
+  ) {
+    invoiceOptions.push({
+      month: selectedInvoiceMonth,
+      label: "Nova fatura",
+    });
+  }
   const currentCategory = tx
     ? s.categories.find((category) => category.id === f.categoryId)
     : undefined;
@@ -69,15 +135,23 @@ export function TxDialog({
       : categoriesForType;
   useEffect(() => {
     if (!open) return;
+    const txCard = tx?.cardId ? s.cards.find((card) => card.id === tx.cardId) : undefined;
     setF(
       tx
         ? {
             description: tx.description,
             amount: (tx.amount / 100).toFixed(2).replace(".", ","),
-            type: tx.type,
+            type: tx.type === "receita" ? "receita" : "despesa",
             date: tx.date,
+            referenceMonth: tx.referenceMonth?.slice(0, 7) ?? "",
             categoryId: tx.categoryId,
             source: tx.cardId ? "c:" + tx.cardId : "b:" + tx.bankId,
+            invoiceMonth:
+              tx.type === "despesa" && txCard
+                ? (s.invoices
+                    .find((invoice) => invoice.id === tx.invoiceId)
+                    ?.dueMonth.slice(0, 7) ?? transactionInvoiceMonth(tx, txCard, s.invoices))
+                : "",
             installments: String(tx.installmentCount ?? 1),
             recurrenceCount: String(tx.recurrenceCount ?? 1),
             recurrenceFrequency: tx.recurrenceFrequency ?? "monthly",
@@ -111,13 +185,21 @@ export function TxDialog({
 
   const save = async (): Promise<void> => {
     if (saving) return;
-    const amount = Math.round(parseFloat(f.amount.replace(/\./g, "").replace(",", ".")) * 100);
-    if (!f.description.trim() || !amount || amount <= 0) {
+    const parsedAmount = Math.round(
+      parseFloat(f.amount.replace(/\./g, "").replace(",", ".")) * 100,
+    );
+    const [k, id] = f.source.split(":");
+    const isCardRefund = f.type === "despesa" && k === "c" && parsedAmount < 0;
+    if (!f.description.trim() || !parsedAmount || (parsedAmount < 0 && !isCardRefund)) {
       toast.error("Preencha descrição e valor válidos");
       return;
     }
     if (!isValidIsoDate(f.date)) {
       toast.error("Informe uma data válida.");
+      return;
+    }
+    if (f.type === "despesa" && k === "c" && !f.categoryId) {
+      toast.error("Escolha uma categoria para a compra no cartão.");
       return;
     }
     const installmentCount = tx ? 1 : Number(f.installments);
@@ -134,7 +216,11 @@ export function TxDialog({
       toast.error("Uma transação não pode ser parcelada e recorrente ao mesmo tempo.");
       return;
     }
-    const [k, id] = f.source.split(":");
+    const amount = Math.abs(parsedAmount);
+    if (isCardRefund && installmentCount > 1) {
+      toast.error("Estornos no cartão devem ser lançados à vista.");
+      return;
+    }
     if (installmentCount > 1 && (k !== "c" || f.type !== "despesa")) {
       toast.error("Parcelamento está disponível para despesas no cartão.");
       return;
@@ -187,15 +273,46 @@ export function TxDialog({
           attachmentPath = undefined;
         }
       }
+      const card = k === "c" ? s.cards.find((item) => item.id === id) : undefined;
+      const newInvoices: CreditCardInvoice[] = [];
+      const invoiceForDate = (date: string, preferredMonth?: string): string | undefined => {
+        if (!card || f.type !== "despesa") return undefined;
+        const month = preferredMonth || cardInvoiceKey(date, card);
+        const dueMonth = `${month}-01`;
+        const existing = s.invoices.find(
+          (invoice) => invoice.cardId === card.id && invoice.dueMonth === dueMonth,
+        );
+        if (existing) return existing.id;
+        let created = newInvoices.find(
+          (invoice) => invoice.cardId === card.id && invoice.dueMonth === dueMonth,
+        );
+        if (!created) {
+          const dates = cardInvoiceDates(month, card);
+          created = {
+            id: uid(),
+            cardId: card.id,
+            dueMonth,
+            closingDate: dates.closingDate,
+            dueDate: dates.dueDate,
+          };
+          newInvoices.push(created);
+        }
+        return created.id;
+      };
       const data: Tx = {
         id: transactionId,
         description: f.description.trim(),
-        amount,
-        type: f.type as Tx["type"],
+        amount: isCardRefund ? -amount : amount,
+        type: f.type,
         date: f.date,
+        referenceMonth:
+          f.type === "receita"
+            ? referenceMonthForDate(f.date, f.date, selectedReferenceMonth)
+            : undefined,
         categoryId: f.categoryId,
         bankId: k === "b" ? id : undefined,
         cardId: k === "c" ? id : undefined,
+        invoiceId: invoiceForDate(f.date, f.invoiceMonth || undefined),
         paid: tx?.paid ?? false,
         installmentGroupId: tx?.installmentGroupId,
         installmentNumber: tx?.installmentNumber,
@@ -206,8 +323,21 @@ export function TxDialog({
         recurrenceCount: tx?.recurrenceCount ?? 1,
         attachmentPath,
       };
+      const saveTransactions = (transactions: Tx[]) =>
+        setState((st) => ({
+          ...st,
+          invoices: [
+            ...st.invoices,
+            ...newInvoices.filter(
+              (invoice) => !st.invoices.some((existing) => existing.id === invoice.id),
+            ),
+          ],
+          txs: tx
+            ? st.txs.map((item) => (item.id === tx.id ? data : item))
+            : [...st.txs, ...transactions],
+        }));
       if (tx) {
-        setState((st) => ({ ...st, txs: st.txs.map((t) => (t.id === tx.id ? data : t)) }));
+        saveTransactions([data]);
       } else if (installmentCount > 1) {
         const installmentGroupId = uid();
         const baseAmount = Math.floor(amount / installmentCount);
@@ -218,25 +348,41 @@ export function TxDialog({
           description: `${data.description} (${index + 1}/${installmentCount})`,
           amount: baseAmount + (index < remainder ? 1 : 0),
           date: addMonthsToDate(f.date, index),
+          invoiceId: invoiceForDate(
+            addMonthsToDate(f.date, index),
+            index === 0 ? f.invoiceMonth || undefined : undefined,
+          ),
           installmentGroupId,
           installmentNumber: index + 1,
           installmentCount,
         }));
-        setState((st) => ({ ...st, txs: [...st.txs, ...installments] }));
+        saveTransactions(installments);
       } else if (recurrenceCount > 1) {
         const recurrenceGroupId = uid();
         const recurringTransactions = Array.from({ length: recurrenceCount }, (_, index): Tx => ({
           ...data,
           id: uid(),
           date: addRecurrenceDate(f.date, f.recurrenceFrequency, index),
+          referenceMonth:
+            f.type === "receita"
+              ? referenceMonthForDate(
+                  addRecurrenceDate(f.date, f.recurrenceFrequency, index),
+                  f.date,
+                  selectedReferenceMonth,
+                )
+              : undefined,
+          invoiceId: invoiceForDate(
+            addRecurrenceDate(f.date, f.recurrenceFrequency, index),
+            index === 0 ? f.invoiceMonth || undefined : undefined,
+          ),
           recurrenceGroupId,
           recurrenceFrequency: f.recurrenceFrequency,
           recurrenceNumber: index + 1,
           recurrenceCount,
         }));
-        setState((st) => ({ ...st, txs: [...st.txs, ...recurringTransactions] }));
+        saveTransactions(recurringTransactions);
       } else {
-        setState((st) => ({ ...st, txs: [...st.txs, data] }));
+        saveTransactions([data]);
       }
       toast.success(tx ? "Transação atualizada" : "Transação criada");
       onOpenChange(false);
@@ -352,16 +498,46 @@ export function TxDialog({
                 value={f.amount}
                 onChange={(e) => setF({ ...f, amount: e.target.value })}
               />
+              {f.type === "despesa" && selectedCard && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Para registrar um estorno, informe o valor negativo.
+                </p>
+              )}
             </div>
             <div>
-              <Label>Data</Label>
+              <Label>{f.type === "receita" ? "Data do recebimento" : "Data"}</Label>
               <Input
                 type="date"
                 value={f.date}
-                onChange={(e) => setF({ ...f, date: e.target.value })}
+                onChange={(e) => setF({ ...f, date: e.target.value, invoiceMonth: "" })}
               />
             </div>
           </div>
+          {f.type === "receita" && (
+            <div>
+              <Label htmlFor="transaction-reference-month">Contabilizar em</Label>
+              <select
+                id="transaction-reference-month"
+                className={sel}
+                value={selectedReferenceMonth}
+                onChange={(event) => setF({ ...f, referenceMonth: event.target.value })}
+              >
+                {referenceMonthOptions.map((month) => (
+                  <option key={month} value={month}>
+                    {monthLabel(
+                      new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1),
+                    )}
+                  </option>
+                ))}
+              </select>
+              {selectedReferenceMonth !== f.date.slice(0, 7) && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Use para receitas recebidas em um mês diferente do mês de referência. Ex.: salário
+                  de novembro pago em dezembro.
+                </p>
+              )}
+            </div>
+          )}
           <div>
             <Label htmlFor="transaction-category">Categoria</Label>
             <select
@@ -377,13 +553,19 @@ export function TxDialog({
                 </option>
               ))}
             </select>
+            {f.type === "despesa" && selectedCard && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Obrigatória para compras no cartão.
+              </p>
+            )}
           </div>
           <div>
             <Label>Conta ou cartão</Label>
             <select
+              aria-label="Conta ou cartão"
               className={sel}
               value={f.source}
-              onChange={(e) => setF({ ...f, source: e.target.value })}
+              onChange={(e) => setF({ ...f, source: e.target.value, invoiceMonth: "" })}
             >
               <optgroup label="Bancos">
                 {s.banks.map((b) => (
@@ -401,6 +583,35 @@ export function TxDialog({
               </optgroup>
             </select>
           </div>
+          {f.type === "despesa" && selectedCard && (
+            <div>
+              <Label htmlFor="transaction-invoice">Fatura</Label>
+              <select
+                id="transaction-invoice"
+                className={sel}
+                value={selectedInvoiceMonth}
+                onChange={(event) => setF({ ...f, invoiceMonth: event.target.value })}
+              >
+                {invoiceOptions.map((option) => (
+                  <option key={option.month} value={option.month}>
+                    Fatura de{" "}
+                    {monthLabel(
+                      new Date(
+                        Number(option.month.slice(0, 4)),
+                        Number(option.month.slice(5, 7)) - 1,
+                        1,
+                      ),
+                    )}
+                    {" · "}
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Sugerida pelo fechamento do cartão; você pode escolher outra fatura em aberto.
+              </p>
+            </div>
+          )}
           {!tx && f.type === "despesa" && f.source.startsWith("c:") && (
             <div>
               <Label htmlFor="installment-count">Parcelas</Label>

@@ -7,8 +7,11 @@ import {
   cardInvoiceDates,
   cardInvoiceKey,
   cardUsed,
+  invoiceSummary,
   loadUserData,
+  monthTotals,
   resetStore,
+  transactionReferenceMonth,
   useStore,
 } from "@/lib/store";
 
@@ -47,6 +50,7 @@ describe("Personal finance loading", () => {
       ["categories", "user_id", owner],
       ["banks", "user_id", owner],
       ["cards", "user_id", owner],
+      ["credit_card_invoices", "user_id", owner],
       ["transactions", "user_id", owner],
       ["user_settings", "user_id", owner],
     ]);
@@ -97,6 +101,7 @@ describe("Personal finance loading", () => {
           { id: "bank", name: "Banco", color: "", kind: "Conta Corrente" as const, initial: 1000 },
         ],
         cards: [],
+        invoices: [],
         txs: [
           {
             id: "future-bank",
@@ -201,5 +206,212 @@ describe("Personal finance loading", () => {
       ["Mercado", "despesa"],
       ["Salário", "receita"],
     ]);
+  });
+
+  it("counts a partial invoice payment against card use and the bank exactly once", () => {
+    const invoice = {
+      id: "invoice",
+      cardId: "card",
+      dueMonth: "2026-11-01",
+      closingDate: "2026-10-24",
+      dueDate: "2026-11-01",
+    };
+    const state = {
+      categories: [],
+      banks: [
+        { id: "bank", name: "Banco", color: "", kind: "Conta Corrente" as const, initial: 100_000 },
+      ],
+      cards: [
+        {
+          id: "card",
+          name: "Itaú",
+          bank: "Itaú",
+          color: "",
+          limit: 50_000,
+          closing: 24,
+          due: 1,
+        },
+      ],
+      invoices: [invoice],
+      txs: [
+        {
+          id: "purchase",
+          description: "Compra",
+          amount: 10_000,
+          type: "despesa" as const,
+          date: "2026-10-10",
+          categoryId: "food",
+          cardId: "card",
+          invoiceId: "invoice",
+        },
+        {
+          id: "payment",
+          description: "Pagamento de fatura · Itaú",
+          amount: 4_000,
+          type: "pagamento_fatura" as const,
+          date: "2026-11-01",
+          categoryId: "",
+          bankId: "bank",
+          invoiceId: "invoice",
+        },
+      ],
+    };
+
+    expect(invoiceSummary(invoice, state.txs, state.cards[0]).outstanding).toBe(6_000);
+    expect(invoiceSummary(invoice, state.txs, state.cards[0]).status).toBe("Parcialmente paga");
+    expect(cardUsed(state, "card")).toBe(6_000);
+    expect(bankBalance(state, "bank")).toBe(96_000);
+    expect(monthTotals(state.txs, "2026-11").expense).toBe(0);
+  });
+
+  it("uses the reference month for income while bank balance follows receipt date", () => {
+    const salary = {
+      id: "salary",
+      description: "Salário de novembro",
+      amount: 300_000,
+      type: "receita" as const,
+      date: "2026-12-05",
+      referenceMonth: "2026-11-01",
+      categoryId: "salary",
+      bankId: "bank",
+    };
+    const oldIncome = {
+      id: "old-income",
+      description: "Receita antiga",
+      amount: 50_000,
+      type: "receita" as const,
+      date: "2026-12-10",
+      categoryId: "other",
+      bankId: "bank",
+    };
+    const expense = {
+      id: "expense",
+      description: "Conta",
+      amount: 20_000,
+      type: "despesa" as const,
+      date: "2026-11-20",
+      categoryId: "home",
+      bankId: "bank",
+    };
+    const txs = [salary, oldIncome, expense];
+    const november = monthTotals(txs, "2026-11");
+    const december = monthTotals(txs, "2026-12");
+    const state = {
+      categories: [],
+      banks: [
+        { id: "bank", name: "Banco", color: "", kind: "Conta Corrente" as const, initial: 0 },
+      ],
+      cards: [],
+      invoices: [],
+      txs,
+    };
+
+    expect(november.income).toBe(300_000);
+    expect(november.list.map((transaction) => transaction.id)).toEqual(["salary", "expense"]);
+    expect(december.income).toBe(50_000);
+    expect(december.cashIncome).toBe(350_000);
+    expect(december.list.map((transaction) => transaction.id)).toEqual(["old-income"]);
+    expect(november.balance).toBe(-20_000);
+    expect(bankBalance(state, "bank")).toBe(350_000 - 20_000);
+    expect(transactionReferenceMonth(oldIncome)).toBe("2026-12");
+  });
+
+  it("subtracts a negative card purchase from the invoice and used limit", () => {
+    const state = {
+      categories: [],
+      banks: [],
+      cards: [
+        {
+          id: "card",
+          name: "Cartão",
+          bank: "",
+          color: "",
+          limit: 50_000,
+          closing: 24,
+          due: 1,
+        },
+      ],
+      invoices: [],
+      txs: [
+        {
+          id: "purchase",
+          description: "Compra",
+          amount: 10_000,
+          type: "despesa" as const,
+          date: "2026-10-10",
+          categoryId: "food",
+          cardId: "card",
+        },
+        {
+          id: "refund",
+          description: "Estorno",
+          amount: -2_000,
+          type: "despesa" as const,
+          date: "2026-10-11",
+          categoryId: "food",
+          cardId: "card",
+        },
+      ],
+    };
+
+    expect(cardUsed(state, "card")).toBe(8_000);
+  });
+
+  it("does not apply an old invoice payment to a purchase moved to a new invoice", () => {
+    const state = {
+      categories: [],
+      banks: [],
+      cards: [
+        {
+          id: "card",
+          name: "Cartão",
+          bank: "",
+          color: "",
+          limit: 50_000,
+          closing: 24,
+          due: 1,
+        },
+      ],
+      invoices: [
+        {
+          id: "old-invoice",
+          cardId: "card",
+          dueMonth: "2026-11-01",
+          closingDate: "2026-10-24",
+          dueDate: "2026-11-01",
+        },
+        {
+          id: "new-invoice",
+          cardId: "card",
+          dueMonth: "2026-12-01",
+          closingDate: "2026-11-24",
+          dueDate: "2026-12-01",
+        },
+      ],
+      txs: [
+        {
+          id: "purchase",
+          description: "Compra alterada",
+          amount: 10_000,
+          type: "despesa" as const,
+          date: "2026-11-25",
+          categoryId: "food",
+          cardId: "card",
+          invoiceId: "new-invoice",
+        },
+        {
+          id: "old-payment",
+          description: "Pagamento da fatura anterior",
+          amount: 5_000,
+          type: "pagamento_fatura" as const,
+          date: "2026-11-01",
+          categoryId: "",
+          bankId: "bank",
+          invoiceId: "old-invoice",
+        },
+      ],
+    };
+
+    expect(cardUsed(state, "card")).toBe(10_000);
   });
 });

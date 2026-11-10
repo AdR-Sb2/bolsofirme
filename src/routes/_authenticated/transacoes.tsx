@@ -16,7 +16,17 @@ import { MonthPicker, useTxDialog } from "@/components/AppShell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { getExceededSpendingLimits, parseSpendingLimits, type SpendingLimit } from "@/lib/planning";
-import { bankBalance, brl, cardUsed, fmtDate, monthKey, monthTotals, useStore } from "@/lib/store";
+import {
+  bankBalance,
+  brl,
+  cardUsed,
+  fmtDate,
+  monthKey,
+  monthLabel,
+  monthTotals,
+  transactionReferenceMonth,
+  useStore,
+} from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/transacoes")({
@@ -102,7 +112,8 @@ function Transacoes() {
       active = false;
     };
   }, []);
-  const monthList = monthTotals(s.txs, monthKey(date)).list;
+  const monthlyTotals = monthTotals(s.txs, monthKey(date));
+  const monthList = monthlyTotals.list;
   const list = monthList.filter((transaction) => {
     if (!institution) return true;
     const [type, id] = institution.split(":", 2);
@@ -110,7 +121,17 @@ function Transacoes() {
   });
   const income = list.filter((transaction) => transaction.type === "receita").reduce((sum, tx) => sum + tx.amount, 0);
   const expense = list.filter((transaction) => transaction.type === "despesa").reduce((sum, tx) => sum + tx.amount, 0);
-  const balance = income - expense;
+  const cashIncome = s.txs
+    .filter((transaction) => {
+      if (transaction.type !== "receita" || !transaction.date.startsWith(monthKey(date))) {
+        return false;
+      }
+      if (!institution) return true;
+      const [sourceType, id] = institution.split(":", 2);
+      return sourceType === "bank" ? transaction.bankId === id : transaction.cardId === id;
+    })
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const balance = cashIncome - expense;
   const today = new Date();
   const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const isCurrentMonth = monthKey(date) === monthKey(today);
@@ -263,16 +284,52 @@ function Transacoes() {
           const c = s.categories.find((x) => x.id === t.categoryId);
           const src = t.bankId ? s.banks.find((b) => b.id === t.bankId)?.name : s.cards.find((k) => k.id === t.cardId)?.name;
           const inc = t.type === "receita";
+          const payment = t.type === "pagamento_fatura";
+          const description = payment ? `Pagamento de fatura · ${src ?? "Cartão"}` : t.description;
+          const referenceMonth =
+            inc && transactionReferenceMonth(t) !== t.date.slice(0, 7)
+              ? monthLabel(
+                  new Date(
+                    Number(transactionReferenceMonth(t).slice(0, 4)),
+                    Number(transactionReferenceMonth(t).slice(5, 7)) - 1,
+                    1,
+                  ),
+                )
+              : null;
           return (
-            <button key={t.id} onClick={() => open(t)} className="flex w-full items-center gap-3 border-b border-border py-3 text-left last:border-0 hover:bg-accent/40">
+            <button
+              key={t.id}
+              disabled={payment}
+              aria-label={payment ? `${description}, ${fmtDate(t.date)}` : `Editar ${description}`}
+              title={
+                payment ? "Abra a fatura do cartão para editar ou excluir este pagamento." : undefined
+              }
+              onClick={() => open(t)}
+              className="flex w-full items-center gap-3 border-b border-border py-3 text-left last:border-0 hover:bg-accent/40 disabled:cursor-default disabled:hover:bg-transparent"
+            >
               <span className={cn("h-2 w-2 shrink-0 rounded-full", inc ? "bg-income" : "bg-expense")} />
               <div className="min-w-0 flex-1">
-                <div className="truncate font-semibold">{t.description}</div>
-                <div className="truncate text-xs text-muted-foreground">{c?.name} • {src} • {fmtDate(t.date)}{t.recurrenceGroupId && <> • Recorrência {t.recurrenceFrequency === "weekly" ? "semanal" : t.recurrenceFrequency === "yearly" ? "anual" : "mensal"} ({t.recurrenceNumber}/{t.recurrenceCount})</>}</div>
+                <div className="truncate font-semibold">{description}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {!payment && c?.name ? `${c.name} • ` : ""}
+                  {src} •{" "}
+                  {referenceMonth ? (
+                    <span className="ml-1 text-primary">
+                      · Ref. {referenceMonth} · recebido {fmtDate(t.date)}
+                    </span>
+                  ) : (
+                    fmtDate(t.date)
+                  )}
+                  {t.recurrenceGroupId && <> • Recorrência {t.recurrenceFrequency === "weekly" ? "semanal" : t.recurrenceFrequency === "yearly" ? "anual" : "mensal"} ({t.recurrenceNumber}/{t.recurrenceCount})</>}
+                </div>
               </div>
               <div className="text-right">
-                <div className={cn("font-semibold", inc ? "text-income" : "text-expense")}>{inc ? "+" : ""}{brl(t.amount)}</div>
-                <span className="mt-1 inline-block rounded border border-border bg-background px-2 py-0.5 text-xs font-medium">{inc ? "Receita" : "Despesa"}</span>
+                <div className={cn("font-semibold", inc ? "text-income" : payment ? "text-muted-foreground" : "text-expense")}>
+                  {inc ? "+" : payment || t.amount < 0 ? "−" : ""}{brl(Math.abs(t.amount))}
+                </div>
+                <span className="mt-1 inline-block rounded border border-border bg-background px-2 py-0.5 text-xs font-medium">
+                  {payment ? "Pagamento de fatura" : inc ? "Receita" : "Despesa"}
+                </span>
               </div>
             </button>
           );
