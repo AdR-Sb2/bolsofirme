@@ -19,12 +19,11 @@ import { PageTitle } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
 
 type Summary = {
-  banks: number;
-  transactions: number;
-  investments: number;
-  income: number;
-  expense: number;
-  assets: number;
+  banks: number | null;
+  transactions: number | null;
+  investments: number | null;
+  income: number | null;
+  expense: number | null;
 };
 type Profile = { user_id: string; display_name: string; avatar_url: string; created_at?: string };
 type Request = {
@@ -131,41 +130,36 @@ function Conexoes() {
         (perms.data ?? []).map((permission) => [permission.viewer_id, permission]),
       ),
     );
-    const acceptedIds = rows
-      .filter((x) => x.status === "accepted")
-      .map((x) => (x.sender_id === user.id ? x.recipient_id : x.sender_id));
-    const summaries = await Promise.all(
-      acceptedIds.map(async (ownerId) => {
-        const [banks, transactions, investments] = await Promise.all([
-          supabase
-            .from("banks")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", ownerId),
-          supabase.from("transactions").select("amount_cents,type").eq("user_id", ownerId),
-          supabase
-            .from("investments")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", ownerId),
-        ]);
-        const txs = transactions.data ?? [];
-        return [
-          ownerId,
-          {
-            banks: banks.count ?? 0,
-            transactions: transactions.count ?? txs.length,
-            investments: investments.count ?? 0,
-            income: txs
-              .filter((transaction) => transaction.type === "receita")
-              .reduce((sum, transaction) => sum + Number(transaction.amount_cents), 0),
-            expense: txs
-              .filter((transaction) => transaction.type === "despesa")
-              .reduce((sum, transaction) => sum + Number(transaction.amount_cents), 0),
-            assets: 0,
-          },
-        ] as const;
-      }),
-    );
-    setShared(Object.fromEntries(summaries));
+    // Resumos de outras pessoas são retornados por uma função autenticada
+    // que respeita as permissões concedidas por cada titular.
+    const db = supabase as any;
+    const { data: summaryRows, error: summaryError } = await db.rpc("get_connection_summaries");
+    if (summaryError) {
+      console.error("Falha ao carregar resumos compartilhados:", summaryError);
+      setShared({});
+    } else {
+      setShared(
+        Object.fromEntries(
+          (summaryRows ?? []).map((row: {
+            connection_user_id: string;
+            banks_count: number | null;
+            transactions_count: number | null;
+            investments_count: number | null;
+            income_cents: number | null;
+            expense_cents: number | null;
+          }) => [
+            row.connection_user_id,
+            {
+              banks: row.banks_count == null ? null : Number(row.banks_count),
+              transactions: row.transactions_count == null ? null : Number(row.transactions_count),
+              investments: row.investments_count == null ? null : Number(row.investments_count),
+              income: row.income_cents == null ? null : Number(row.income_cents),
+              expense: row.expense_cents == null ? null : Number(row.expense_cents),
+            },
+          ]),
+        ),
+      );
+    }
     setLoading(false);
   }, []);
   useEffect(() => {
@@ -362,22 +356,22 @@ function Conexoes() {
                 <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <div className="rounded-lg bg-muted/50 p-3">
                     <Wallet className="mb-1 h-4 w-4 text-muted-foreground" />
-                    <p className="text-lg font-semibold">{info?.banks ?? "—"}</p>
+                    <p className="text-lg font-semibold">{info?.banks == null ? "Privado" : info.banks}</p>
                     <p className="text-xs text-muted-foreground">Bancos visíveis</p>
                   </div>
                   <div className="rounded-lg bg-muted/50 p-3">
                     <ReceiptText className="mb-1 h-4 w-4 text-muted-foreground" />
-                    <p className="text-lg font-semibold">{info?.transactions ?? "—"}</p>
+                    <p className="text-lg font-semibold">{info?.transactions == null ? "Privado" : info.transactions}</p>
                     <p className="text-xs text-muted-foreground">Transações</p>
                   </div>
                   <div className="rounded-lg bg-muted/50 p-3">
                     <TrendingUp className="mb-1 h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm font-semibold">{info ? money(info.income) : "—"}</p>
+                    <p className="text-sm font-semibold">{info?.income == null ? "Privado" : money(info.income)}</p>
                     <p className="text-xs text-muted-foreground">Receitas compartilhadas</p>
                   </div>
                   <div className="rounded-lg bg-muted/50 p-3">
                     <TrendingUp className="mb-1 h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm font-semibold">{info ? money(info.expense) : "—"}</p>
+                    <p className="text-sm font-semibold">{info?.expense == null ? "Privado" : money(info.expense)}</p>
                     <p className="text-xs text-muted-foreground">Despesas compartilhadas</p>
                   </div>
                 </div>
