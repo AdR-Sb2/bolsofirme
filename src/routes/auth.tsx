@@ -3,7 +3,6 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Wallet, Mail, Lock, Eye, EyeOff, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,13 +64,19 @@ function AuthPage() {
   const signInGoogle = async () => {
     setBusy(true);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
-      if (result.error) throw result.error;
-      const { data } = await supabase.auth.getSession();
-      if (data.session) nav({ to: "/transacoes" });
-    } catch {
-      toast.error("Não foi possível entrar com o Google. Tente novamente.");
-    } finally {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth`,
+          queryParams: { access_type: "offline", prompt: "select_account" },
+        },
+      });
+      if (error) throw error;
+      // Supabase redirects the browser to Google and returns to /auth.
+      // The auth client exchanges the callback code and restores the session.
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Não foi possível entrar com o Google.";
+      toast.error(message);
       setBusy(false);
     }
   };
