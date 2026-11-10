@@ -76,6 +76,7 @@ function Conexoes(){
     if(permissionError)toast.error("Convite aceito, mas não foi possível configurar as permissões.");
    }
    toast.success(status==="accepted"?"Conexão aceita!":"Convite recusado.");
+   window.dispatchEvent(new Event("connection-invites-updated"));
    await load();
   }
  };

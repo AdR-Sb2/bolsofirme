@@ -54,9 +54,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     void refreshInvites();
     const onFocus = () => { void refreshInvites(); };
     window.addEventListener("focus", onFocus);
+    window.addEventListener("connection-invites-updated", onFocus);
     channel = supabase.channel("profile-incoming-invites").on("postgres_changes", { event: "*", schema: "public", table: "connection_requests" }, () => { void refreshInvites(); }).subscribe();
     const poll = window.setInterval(() => { void refreshInvites(); }, 30000);
-    return () => { alive = false; window.removeEventListener("focus", onFocus); window.clearInterval(poll); if (channel) void supabase.removeChannel(channel); };
+    return () => { alive = false; window.removeEventListener("focus", onFocus); window.removeEventListener("connection-invites-updated", onFocus); window.clearInterval(poll); if (channel) void supabase.removeChannel(channel); };
   }, [path]);
   const initials = profile.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "BF";
   const signOut = async () => { await supabase.auth.signOut(); window.location.assign("/auth"); };
