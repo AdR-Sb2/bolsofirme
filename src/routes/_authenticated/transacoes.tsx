@@ -148,6 +148,9 @@ function Transacoes() {
   const expense = list
     .filter(isCashOutflow)
     .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const goalOutgoals = (s.goalMovements ?? [])
+    .filter((movement) => movement.type === "aporte" && movement.date.startsWith(monthKey(date)))
+    .reduce((sum, movement) => sum + movement.amountCents, 0);
   const todayIso = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
     year: "numeric",
@@ -155,7 +158,7 @@ function Transacoes() {
     day: "2-digit",
   }).format(new Date());
   const today = new Date(`${todayIso}T12:00:00`);
-  const balance = income - expense;
+  const balance = income - expense - goalOutgoals;
   const isCurrentMonth = monthKey(date) === monthKey(today);
   const elapsedDays = Math.max(1, today.getDate());
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
@@ -247,7 +250,7 @@ function Transacoes() {
 
   const cards = [
     { label: "Total Entradas", value: income, cls: "text-income", Icon: TrendingUp },
-    { label: "Total Saídas (caixa)", value: expense, cls: "text-expense", Icon: TrendingDown },
+    { label: "Total Saídas (caixa)", value: expense + goalOutgoals, cls: "text-expense", Icon: TrendingDown },
     { label: "Saldo Final", value: balance, cls: "text-balance", Icon: Wallet },
     { label: "Patrimônio total", value: netWorth, cls: "text-balance", Icon: Landmark },
   ];
