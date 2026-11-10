@@ -1,7 +1,28 @@
+import { transactionInvoiceMonth, type CardC, type CreditCardInvoice, type SavingsGoalMovement, type Tx } from "@/lib/store";
+
 export interface SpendingLimit {
   [key: string]: string | number;
   categoryId: string;
   amountCents: number;
+}
+
+export interface SpendingBudget {
+  id: string;
+  categoryId: string;
+  month: string;
+  amountCents: number;
+}
+
+export interface SavingsGoalRecord {
+  id: string;
+  name: string;
+  targetCents: number;
+  deadline: string | null;
+  icon: string;
+  color: string;
+  status: "em_andamento" | "concluida" | "arquivada";
+  legacyBalanceCents: number;
+  createdAt: string;
 }
 
 export interface ExceededSpendingLimit extends SpendingLimit {
@@ -49,6 +70,65 @@ export function getExceededSpendingLimits(
       ? [{ ...limit, spentCents, overByCents: spentCents - limit.amountCents }]
       : [];
   });
+}
+
+export function getMonthlySpendingByCategory(
+  transactions: Tx[],
+  month: string,
+  cards: CardC[],
+  invoices: CreditCardInvoice[],
+): Record<string, number> {
+  return transactions.reduce<Record<string, number>>((totals, transaction) => {
+    if (transaction.type !== "despesa") return totals;
+    const card = transaction.cardId
+      ? cards.find((item) => item.id === transaction.cardId)
+      : undefined;
+    const transactionMonth =
+      card ? transactionInvoiceMonth(transaction, card, invoices) : transaction.date.slice(0, 7);
+    if (transactionMonth === month) {
+      totals[transaction.categoryId] = (totals[transaction.categoryId] ?? 0) + transaction.amount;
+    }
+    return totals;
+  }, {});
+}
+
+export function savingsGoalBalanceCents(
+  goal: SavingsGoalRecord,
+  movements: SavingsGoalMovement[],
+): number {
+  return goal.legacyBalanceCents + movements
+    .filter((movement) => movement.goalId === goal.id)
+    .reduce(
+      (total, movement) =>
+        total + (movement.type === "aporte" ? movement.amountCents : -movement.amountCents),
+      0,
+    );
+}
+
+export function budgetStatus(progress: number): "normal" | "atencao" | "estourado" {
+  if (progress >= 100) return "estourado";
+  if (progress >= 80) return "atencao";
+  return "normal";
+}
+
+export function monthlySavingsSuggestion(
+  balanceCents: number,
+  targetCents: number,
+  deadline: string | null,
+  today = new Date(),
+): number | null {
+  if (!deadline) return null;
+  const [yearText, monthText] = deadline.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    throw new RangeError(`Invalid goal deadline: ${deadline}`);
+  }
+  const monthsLeft = Math.max(
+    1,
+    (year - today.getFullYear()) * 12 + month - (today.getMonth() + 1),
+  );
+  return Math.max(0, Math.ceil((targetCents - balanceCents) / monthsLeft));
 }
 
 export function parseSavingsGoals(value: unknown): SavingsGoal[] {

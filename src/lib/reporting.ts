@@ -1,4 +1,11 @@
-import { monthKey, transactionReferenceMonth, type Tx } from "@/lib/store";
+import {
+  isCashOutflow,
+  isPendingPayable,
+  monthKey,
+  transactionCashDate,
+  transactionReferenceMonth,
+  type Tx,
+} from "@/lib/store";
 
 export interface ReportSource {
   type: "bank" | "card";
@@ -6,34 +13,54 @@ export interface ReportSource {
 }
 
 function periodTotals(transactions: Tx[], month: string, source?: ReportSource) {
-  const list = transactions.filter(
-    (transaction) =>
-      (transaction.type === "receita"
-        ? transactionReferenceMonth(transaction)
-        : transaction.date.slice(0, 7)) === month &&
+  const list = transactions.filter((transaction) => {
+    const transactionMonth =
+      transaction.type === "receita"
+        ? !isPendingPayable(transaction)
+          ? transactionReferenceMonth(transaction)
+          : ""
+        : isPendingPayable(transaction)
+          ? transaction.dueDate?.slice(0, 7)
+          : transaction.type === "pagamento_fatura"
+            ? transactionCashDate(transaction).slice(0, 7)
+            : transaction.cardId
+              ? transaction.date.slice(0, 7)
+              : transactionCashDate(transaction).slice(0, 7);
+    return (
+      transactionMonth === month &&
       (!source ||
         (source.type === "bank"
           ? transaction.bankId === source.id
-          : transaction.cardId === source.id)),
-  );
+          : transaction.cardId === source.id))
+    );
+  });
   const income = list
     .filter((transaction) => transaction.type === "receita")
     .reduce((sum, transaction) => sum + transaction.amount, 0);
-  const expense = list
-    .filter((transaction) => transaction.type === "despesa")
-    .reduce((sum, transaction) => sum + transaction.amount, 0);
-  const cashIncome = transactions
+  const expense = transactions
     .filter(
       (transaction) =>
-        transaction.type === "receita" &&
-        transaction.date.startsWith(month) &&
+        isCashOutflow(transaction) &&
+        transactionCashDate(transaction).startsWith(month) &&
         (!source ||
           (source.type === "bank"
             ? transaction.bankId === source.id
             : transaction.cardId === source.id)),
     )
     .reduce((sum, transaction) => sum + transaction.amount, 0);
-  return { list, income, cashIncome, expense, balance: cashIncome - expense };
+  const cashIncome = transactions
+    .filter(
+      (transaction) =>
+        transaction.type === "receita" &&
+        !isPendingPayable(transaction) &&
+        transactionCashDate(transaction).startsWith(month) &&
+        (!source ||
+          (source.type === "bank"
+            ? transaction.bankId === source.id
+            : transaction.cardId === source.id)),
+    )
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  return { list, income, cashIncome, expense, balance: income - expense };
 }
 
 export interface PeriodComparison {

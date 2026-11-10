@@ -29,10 +29,11 @@ function Bancos() {
   const [open, setOpen] = useState(false);
   const mk = monthKey(new Date());
   const total = s.banks.reduce((a, b) => a + bankBalance(s, b.id), 0);
-  const txCount = s.txs.filter((t) => t.bankId).length;
+  const txCount = s.txs.filter((t) => t.bankId).length + (s.goalMovements?.length ?? 0);
 
   const del = (b: Bank) => {
     if (s.txs.some((t) => t.bankId === b.id)) { toast.error("Este banco possui transações vinculadas e não pode ser excluído."); return; }
+    if (s.goalMovements?.some((movement) => movement.bankId === b.id)) { toast.error("Esta conta possui aportes ou resgates vinculados e não pode ser excluída."); return; }
     if (!confirm(`Excluir ${b.name}?`)) return;
     setState((st) => ({ ...st, banks: st.banks.filter((x) => x.id !== b.id) }));
     toast.success("Banco excluído");
@@ -59,7 +60,7 @@ function Bancos() {
             </div>
             <div className="mt-4 text-sm text-muted-foreground">Saldo Atual</div>
             <div className="text-xl font-bold text-income">{brl(bankBalance(s, b.id))}</div>
-            <div className="mt-2 flex justify-between text-sm"><span className="text-muted-foreground">Transações no Mês</span><span>{s.txs.filter((t) => t.bankId === b.id && t.date.startsWith(mk)).length}</span></div>
+            <div className="mt-2 flex justify-between text-sm"><span className="text-muted-foreground">Movimentos no Mês</span><span>{s.txs.filter((t) => t.bankId === b.id && t.date.startsWith(mk)).length + (s.goalMovements ?? []).filter((movement) => movement.bankId === b.id && movement.date.startsWith(mk)).length}</span></div>
             <div className="mt-4 flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => nav({ to: "/transacoes" })}>Ver</Button>
               <Button variant="outline" size="icon" aria-label="Editar" onClick={() => { setEdit(b); setOpen(true); }}><Settings className="h-4 w-4" /></Button>

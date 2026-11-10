@@ -17,6 +17,7 @@ import {
   Search,
   Landmark,
   CreditCard as CardIcon,
+  CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,13 +32,21 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LogOut, UserRound, Settings2 } from "lucide-react";
 import { TxDialog } from "@/components/TxDialog";
-import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { applyThemePreference, getThemePreference } from "@/lib/theme";
-import { brl, fmtDate, type Tx, useStore } from "@/lib/store";
+import { brl, fmtDate, isPendingPayable, type Tx, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const main = [
   { to: "/transacoes", label: "Transações", icon: Home },
+  { to: "/a-pagar", label: "A pagar", icon: CalendarClock },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { to: "/bancos", label: "Bancos", icon: Building2 },
   { to: "/cartoes", label: "Cartões", icon: CreditCard },
@@ -210,6 +219,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       .map((part) => part[0])
       .join("")
       .toUpperCase() || "BF";
+  const saoPauloToday = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const overduePayables = store.txs.filter(
+    (transaction) =>
+      isPendingPayable(transaction) &&
+      transaction.dueDate !== undefined &&
+      transaction.dueDate < saoPauloToday,
+  ).length;
   const signOut = async () => {
     await supabase.auth.signOut();
     window.location.assign("/auth");
@@ -220,10 +241,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const searchTransactions = normalizedSearch
     ? store.txs
         .filter((transaction) => {
-          const category = store.categories.find((item) => item.id === transaction.categoryId)?.name ?? "";
+          const category =
+            store.categories.find((item) => item.id === transaction.categoryId)?.name ?? "";
           const institution = transaction.bankId
-            ? store.banks.find((item) => item.id === transaction.bankId)?.name ?? ""
-            : store.cards.find((item) => item.id === transaction.cardId)?.name ?? "";
+            ? (store.banks.find((item) => item.id === transaction.bankId)?.name ?? "")
+            : (store.cards.find((item) => item.id === transaction.cardId)?.name ?? "");
           return `${transaction.description} ${category} ${institution} ${transaction.date}`
             .toLocaleLowerCase("pt-BR")
             .includes(normalizedSearch);
@@ -235,20 +257,35 @@ export function AppShell({ children }: { children: ReactNode }) {
     : [];
   const searchCards = normalizedSearch
     ? store.cards.filter((card) =>
-        `${card.name} ${card.bank} ${card.brand ?? ""}`.toLocaleLowerCase("pt-BR").includes(normalizedSearch),
+        `${card.name} ${card.bank} ${card.brand ?? ""}`
+          .toLocaleLowerCase("pt-BR")
+          .includes(normalizedSearch),
       )
     : [];
   const NavItem = ({ to, label, icon: Icon }: { to: string; label: string; icon: typeof Home }) => (
     <Link
       to={to as never}
       onClick={() => setMobile(false)}
+      aria-label={
+        to === "/a-pagar" && overduePayables ? `${label}, ${overduePayables} vencidas` : label
+      }
       className={cn(
-        "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-sidebar-accent",
+        "relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-sidebar-accent",
         path === to && "bg-sidebar-accent font-semibold",
       )}
     >
       <Icon className="h-4 w-4 shrink-0" />
       {!collapsed && <span>{label}</span>}
+      {to === "/a-pagar" && overduePayables > 0 && (
+        <span
+          className={cn(
+            "ml-auto grid min-h-5 min-w-5 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground",
+            collapsed && "absolute -right-1 -top-1",
+          )}
+        >
+          {overduePayables > 99 ? "99+" : overduePayables}
+        </span>
+      )}
     </Link>
   );
   const sidebar = (
@@ -445,14 +482,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
         <CommandList>
           <CommandEmpty>
-            {normalizedSearch ? "Nenhum resultado encontrado." : "Digite para pesquisar em toda a sua conta."}
+            {normalizedSearch
+              ? "Nenhum resultado encontrado."
+              : "Digite para pesquisar em toda a sua conta."}
           </CommandEmpty>
           <CommandGroup heading="Transações">
             {searchTransactions.map((transaction) => {
-              const category = store.categories.find((item) => item.id === transaction.categoryId)?.name ?? "";
+              const category =
+                store.categories.find((item) => item.id === transaction.categoryId)?.name ?? "";
               const institution = transaction.bankId
-                ? store.banks.find((item) => item.id === transaction.bankId)?.name ?? ""
-                : store.cards.find((item) => item.id === transaction.cardId)?.name ?? "";
+                ? (store.banks.find((item) => item.id === transaction.bankId)?.name ?? "")
+                : (store.cards.find((item) => item.id === transaction.cardId)?.name ?? "");
               return (
                 <CommandItem
                   key={`tx-${transaction.id}`}

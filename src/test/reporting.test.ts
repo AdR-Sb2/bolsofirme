@@ -88,8 +88,11 @@ describe("Period reports", () => {
     expect(comparison.current.expense).toBe(500);
     expect(comparison.previous.expense).toBe(0);
     expect(reportMonthTotals(transactions, "2026-02", { type: "card", id: "card-a" }).expense).toBe(
-      250,
+      0,
     );
+    expect(
+      reportMonthTotals(transactions, "2026-02", { type: "card", id: "card-a" }).list,
+    ).toHaveLength(1);
     expect(() => previousMonthKey("2026-13")).toThrow("Invalid month key: 2026-13");
   });
 
@@ -122,9 +125,11 @@ describe("Period reports", () => {
     expect(november.income).toBe(300_000);
     expect(november.expense).toBe(20_000);
     expect(november.cashIncome).toBe(0);
-    expect(november.balance).toBe(-20_000);
+    expect(november.balance).toBe(280_000);
     expect(december.income).toBe(0);
     expect(december.cashIncome).toBe(300_000);
+    expect(december.expense).toBe(0);
+    expect(december.balance).toBe(0);
     expect(december.list).toHaveLength(0);
   });
 });

@@ -14,12 +14,15 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   addMonthsToDate,
   addRecurrenceDate,
+  brl,
+  formatCurrencyInput,
   cardInvoiceDates,
   cardInvoiceKey,
   invoiceSummary,
   monthKey,
   monthLabel,
   transactionInvoiceMonth,
+  loadUserData,
   setState,
   uid,
   useStore,
@@ -73,6 +76,8 @@ export function TxDialog({
     description: "",
     amount: "",
     type: "despesa" as TxType,
+    status: "paga" as "paga" | "pendente",
+    repeatMonthly: false,
     date: new Date().toISOString().slice(0, 10),
     referenceMonth: "",
     categoryId: s.categories.find((category) => category.type === "despesa")?.id ?? "",
@@ -103,18 +108,33 @@ export function TxDialog({
     referenceMonthOptions.push(selectedReferenceMonth);
     referenceMonthOptions.sort();
   }
+  const invoiceMonths = selectedCard
+    ? Array.from({ length: 19 }, (_, index) =>
+        monthKey(new Date(new Date().getFullYear(), new Date().getMonth() + index - 6, 1)),
+      )
+    : [];
+  if (selectedInvoiceMonth && !invoiceMonths.includes(selectedInvoiceMonth)) {
+    invoiceMonths.push(selectedInvoiceMonth);
+    invoiceMonths.sort();
+  }
   const invoiceOptions = selectedCard
-    ? s.invoices
-        .filter((invoice) => invoice.cardId === selectedCard.id)
-        .filter(
-          (invoice) =>
-            invoiceSummary(invoice, s.txs, selectedCard).outstanding > 0 ||
-            invoice.dueMonth.slice(0, 7) === selectedInvoiceMonth,
-        )
-        .map((invoice) => ({
-          month: invoice.dueMonth.slice(0, 7),
-          label: invoiceSummary(invoice, s.txs, selectedCard).status,
-        }))
+    ? invoiceMonths.map((month) => {
+        const invoice = s.invoices.find(
+          (item) => item.cardId === selectedCard.id && item.dueMonth.slice(0, 7) === month,
+        );
+        const dates = invoice ?? {
+          id: "",
+          cardId: selectedCard.id,
+          dueMonth: `${month}-01`,
+          ...cardInvoiceDates(month, selectedCard),
+        };
+        return {
+          month,
+          label: invoice ? invoiceSummary(invoice, s.txs, selectedCard).status : "Sem lançamentos",
+          closingDate: dates.closingDate,
+          dueDate: dates.dueDate,
+        };
+      })
     : [];
   if (
     selectedCard &&
@@ -133,6 +153,21 @@ export function TxDialog({
     currentCategory && !categoriesForType.some((category) => category.id === currentCategory.id)
       ? [...categoriesForType, currentCategory]
       : categoriesForType;
+  const selectedInvoice = invoiceOptions.find((option) => option.month === selectedInvoiceMonth);
+  const amountPreview = Math.round(parseFloat(f.amount.replace(/\./g, "").replace(",", ".")) * 100);
+  const firstInstallmentAmount =
+    Number.isFinite(amountPreview) && amountPreview > 0
+      ? tx
+        ? amountPreview
+        : Math.floor(amountPreview / Number(f.installments)) +
+          (amountPreview % Number(f.installments) > 0 ? 1 : 0)
+      : 0;
+  const isSameInvoice =
+    !!tx &&
+    !!selectedCard &&
+    tx.cardId === selectedCard.id &&
+    transactionInvoiceMonth(tx, selectedCard, s.invoices) === selectedInvoiceMonth;
+  const paidInvoiceIncrease = isSameInvoice ? 0 : firstInstallmentAmount;
   useEffect(() => {
     if (!open) return;
     const txCard = tx?.cardId ? s.cards.find((card) => card.id === tx.cardId) : undefined;
@@ -142,7 +177,9 @@ export function TxDialog({
             description: tx.description,
             amount: (tx.amount / 100).toFixed(2).replace(".", ","),
             type: tx.type === "receita" ? "receita" : "despesa",
-            date: tx.date,
+            status: tx.status ?? "paga",
+            repeatMonthly: false,
+            date: tx.paidAt ?? tx.date,
             referenceMonth: tx.referenceMonth?.slice(0, 7) ?? "",
             categoryId: tx.categoryId,
             source: tx.cardId ? "c:" + tx.cardId : "b:" + tx.bankId,
@@ -189,21 +226,42 @@ export function TxDialog({
       parseFloat(f.amount.replace(/\./g, "").replace(",", ".")) * 100,
     );
     const [k, id] = f.source.split(":");
+    const payable = f.type === "despesa" && f.status === "pendente";
     const isCardRefund = f.type === "despesa" && k === "c" && parsedAmount < 0;
     if (!f.description.trim() || !parsedAmount || (parsedAmount < 0 && !isCardRefund)) {
       toast.error("Preencha descrição e valor válidos");
       return;
     }
     if (!isValidIsoDate(f.date)) {
-      toast.error("Informe uma data válida.");
+      toast.error(payable ? "Informe um vencimento válido." : "Informe uma data válida.");
+      return;
+    }
+    if (payable && tx?.cardId) {
+      toast.error("Compras no cartão não podem ser registradas como conta a pagar.");
+      return;
+    }
+    if (payable && tx?.payableSeriesId && tx.status !== "pendente") {
+      toast.error("Esta conta pertence a uma recorrência. Edite-a pela seção A pagar.");
+      return;
+    }
+    if (
+      payable &&
+      tx &&
+      tx.status !== "pendente" &&
+      !confirm("Esta transação deixará de contar no saldo e nos totais até ser paga. Continuar?")
+    ) {
+      return;
+    }
+    if (payable && (tx?.status === "pendente" || !tx) && f.repeatMonthly && tx) {
+      toast.error("A recorrência mensal não pode ser alterada ao editar uma conta existente.");
       return;
     }
     if (f.type === "despesa" && k === "c" && !f.categoryId) {
       toast.error("Escolha uma categoria para a compra no cartão.");
       return;
     }
-    const installmentCount = tx ? 1 : Number(f.installments);
-    const recurrenceCount = tx ? 1 : Number(f.recurrenceCount);
+    const installmentCount = tx || payable ? 1 : Number(f.installments);
+    const recurrenceCount = tx || payable ? 1 : Number(f.recurrenceCount);
     if (!Number.isInteger(installmentCount) || installmentCount < 1 || installmentCount > 36) {
       toast.error("Escolha entre 1 e 36 parcelas.");
       return;
@@ -221,11 +279,11 @@ export function TxDialog({
       toast.error("Estornos no cartão devem ser lançados à vista.");
       return;
     }
-    if (installmentCount > 1 && (k !== "c" || f.type !== "despesa")) {
+    if (installmentCount > 1 && (k !== "c" || f.type !== "despesa" || payable)) {
       toast.error("Parcelamento está disponível para despesas no cartão.");
       return;
     }
-    if (tx?.installmentGroupId && (k !== "c" || f.type !== "despesa")) {
+    if (tx?.installmentGroupId && (k !== "c" || f.type !== "despesa" || payable)) {
       toast.error("Uma parcela existente deve continuar vinculada a um cartão.");
       return;
     }
@@ -247,6 +305,7 @@ export function TxDialog({
     setSaving(true);
     const transactionId = tx?.id ?? uid();
     let attachmentPath = tx?.attachmentPath;
+    let newlyUploadedPath: string | undefined;
     try {
       if (receiptFile || removeReceipt) {
         const {
@@ -265,6 +324,7 @@ export function TxDialog({
               contentType: receiptFile.type,
             });
           if (error) throw error;
+          if (!tx?.attachmentPath) newlyUploadedPath = attachmentPath;
         } else if (attachmentPath) {
           const { error } = await supabase.storage
             .from("transaction-receipts")
@@ -274,6 +334,25 @@ export function TxDialog({
         }
       }
       const card = k === "c" ? s.cards.find((item) => item.id === id) : undefined;
+      if (payable && !tx) {
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError) throw userError;
+        if (!userData.user) throw new Error("No authenticated user.");
+        const { error } = await supabase.rpc("create_payable_transaction", {
+          p_description: f.description.trim(),
+          p_amount_cents: amount,
+          p_due_date: f.date,
+          p_category_id: f.categoryId || null,
+          p_recurring: f.repeatMonthly,
+          p_attachment_path: attachmentPath ?? null,
+          p_transaction_id: transactionId,
+        });
+        if (error) throw error;
+        await loadUserData(userData.user.id, true);
+        toast.success("Conta a pagar criada.");
+        onOpenChange(false);
+        return;
+      }
       const newInvoices: CreditCardInvoice[] = [];
       const invoiceForDate = (date: string, preferredMonth?: string): string | undefined => {
         if (!card || f.type !== "despesa") return undefined;
@@ -304,16 +383,28 @@ export function TxDialog({
         description: f.description.trim(),
         amount: isCardRefund ? -amount : amount,
         type: f.type,
-        date: f.date,
+        date:
+          tx &&
+          tx.status === "paga" &&
+          tx.dueDate &&
+          tx.paidAt &&
+          tx.dueDate !== tx.paidAt &&
+          !tx.cardId
+            ? tx.date
+            : f.date,
         referenceMonth:
           f.type === "receita"
             ? referenceMonthForDate(f.date, f.date, selectedReferenceMonth)
             : undefined,
         categoryId: f.categoryId,
-        bankId: k === "b" ? id : undefined,
-        cardId: k === "c" ? id : undefined,
-        invoiceId: invoiceForDate(f.date, f.invoiceMonth || undefined),
+        bankId: payable ? undefined : k === "b" ? id : undefined,
+        cardId: payable ? undefined : k === "c" ? id : undefined,
+        invoiceId: payable ? undefined : invoiceForDate(f.date, f.invoiceMonth || undefined),
         paid: tx?.paid ?? false,
+        status: payable ? "pendente" : "paga",
+        dueDate: payable ? f.date : tx?.dueDate,
+        paidAt: payable ? undefined : f.date,
+        payableSeriesId: tx?.payableSeriesId,
         installmentGroupId: tx?.installmentGroupId,
         installmentNumber: tx?.installmentNumber,
         installmentCount: tx?.installmentCount ?? 1,
@@ -337,6 +428,8 @@ export function TxDialog({
             : [...st.txs, ...transactions],
         }));
       if (tx) {
+        saveTransactions([data]);
+      } else if (payable) {
         saveTransactions([data]);
       } else if (installmentCount > 1) {
         const installmentGroupId = uid();
@@ -387,6 +480,17 @@ export function TxDialog({
       toast.success(tx ? "Transação atualizada" : "Transação criada");
       onOpenChange(false);
     } catch (error) {
+      if (newlyUploadedPath) {
+        const { error: cleanupError } = await supabase.storage
+          .from("transaction-receipts")
+          .remove([newlyUploadedPath]);
+        if (cleanupError) {
+          console.error(
+            "Não foi possível remover o comprovante de uma conta não salva.",
+            cleanupError,
+          );
+        }
+      }
       console.error("Não foi possível salvar a transação ou seu comprovante:", error);
       toast.error("Não foi possível salvar a transação ou o comprovante.");
     } finally {
@@ -403,7 +507,9 @@ export function TxDialog({
           ? "Excluir todas as parcelas desta compra, inclusive as já registradas como pagas?"
           : recurrenceGroupId
             ? "Excluir todas as ocorrências desta transação recorrente?"
-            : "Excluir esta transação?",
+            : tx.payableSeriesId && tx.status === "pendente"
+              ? "Excluir esta conta a pagar e encerrar a recorrência?"
+              : "Excluir esta transação?",
       )
     )
       return;
@@ -422,6 +528,13 @@ export function TxDialog({
           groupTransactions.flatMap((item) => (item.attachmentPath ? [item.attachmentPath] : [])),
         ),
       ];
+      if (tx.payableSeriesId && tx.status === "pendente") {
+        const { error } = await supabase.rpc("set_payable_series_status", {
+          p_series_id: tx.payableSeriesId,
+          p_status: "encerrada",
+        });
+        if (error) throw error;
+      }
       if (attachmentPaths.length) {
         const { error } = await supabase.storage
           .from("transaction-receipts")
@@ -472,9 +585,11 @@ export function TxDialog({
                   setF({
                     ...f,
                     type: t,
-                    categoryId: tx
-                      ? f.categoryId
-                      : (s.categories.find((category) => category.type === t)?.id ?? ""),
+                    status: t === "despesa" ? f.status : "paga",
+                    categoryId:
+                      s.categories.find((category) => category.id === f.categoryId)?.type === t
+                        ? f.categoryId
+                        : (s.categories.find((category) => category.type === t)?.id ?? ""),
                   })
                 }
               >
@@ -482,21 +597,61 @@ export function TxDialog({
               </Button>
             ))}
           </div>
+          {f.type === "despesa" &&
+            !tx?.cardId &&
+            !tx?.payableSeriesId &&
+            tx?.status !== "pendente" && (
+              <div className="grid grid-cols-2 gap-2" role="group" aria-label="Status da despesa">
+                <Button
+                  type="button"
+                  variant={f.status === "paga" ? "default" : "outline"}
+                  aria-pressed={f.status === "paga"}
+                  onClick={() => setF({ ...f, status: "paga", date: tx?.paidAt ?? f.date })}
+                >
+                  Pago
+                </Button>
+                <Button
+                  type="button"
+                  variant={f.status === "pendente" ? "default" : "outline"}
+                  aria-pressed={f.status === "pendente"}
+                  onClick={() =>
+                    setF({
+                      ...f,
+                      status: "pendente",
+                      date: tx?.dueDate ?? f.date,
+                      amount: formatCurrencyInput(f.amount),
+                    })
+                  }
+                >
+                  A pagar
+                </Button>
+              </div>
+            )}
           <div>
-            <Label>Descrição</Label>
+            <Label htmlFor="transaction-description">Descrição</Label>
             <Input
+              id="transaction-description"
               value={f.description}
               onChange={(e) => setF({ ...f, description: e.target.value })}
             />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label>Valor (R$)</Label>
+              <Label htmlFor="transaction-amount">Valor (R$)</Label>
               <Input
+                id="transaction-amount"
                 inputMode="decimal"
                 placeholder="0,00"
                 value={f.amount}
-                onChange={(e) => setF({ ...f, amount: e.target.value })}
+                onChange={(e) =>
+                  setF({
+                    ...f,
+                    amount:
+                      f.type === "despesa" && f.status === "pendente"
+                        ? formatCurrencyInput(e.target.value)
+                        : e.target.value,
+                  })
+                }
               />
               {f.type === "despesa" && selectedCard && (
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -505,8 +660,17 @@ export function TxDialog({
               )}
             </div>
             <div>
-              <Label>{f.type === "receita" ? "Data do recebimento" : "Data"}</Label>
+              <Label htmlFor="transaction-date">
+                {f.type === "receita"
+                  ? "Data do recebimento"
+                  : f.status === "pendente"
+                    ? "Vencimento"
+                    : tx?.dueDate && tx.paidAt && tx.dueDate !== tx.paidAt && !tx.cardId
+                      ? "Data do pagamento"
+                      : "Data"}
+              </Label>
               <Input
+                id="transaction-date"
                 type="date"
                 value={f.date}
                 onChange={(e) => setF({ ...f, date: e.target.value, invoiceMonth: "" })}
@@ -559,30 +723,42 @@ export function TxDialog({
               </p>
             )}
           </div>
-          <div>
-            <Label>Conta ou cartão</Label>
-            <select
-              aria-label="Conta ou cartão"
-              className={sel}
-              value={f.source}
-              onChange={(e) => setF({ ...f, source: e.target.value, invoiceMonth: "" })}
-            >
-              <optgroup label="Bancos">
-                {s.banks.map((b) => (
-                  <option key={b.id} value={"b:" + b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Cartões">
-                {s.cards.map((c) => (
-                  <option key={c.id} value={"c:" + c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-          </div>
+          {!(f.type === "despesa" && f.status === "pendente") && (
+            <div>
+              <Label>Conta ou cartão</Label>
+              <select
+                aria-label="Conta ou cartão"
+                className={sel}
+                value={f.source}
+                onChange={(e) => setF({ ...f, source: e.target.value, invoiceMonth: "" })}
+              >
+                <optgroup label="Bancos">
+                  {s.banks.map((b) => (
+                    <option key={b.id} value={"b:" + b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Cartões">
+                  {s.cards.map((c) => (
+                    <option key={c.id} value={"c:" + c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+          )}
+          {f.type === "despesa" && f.status === "pendente" && !tx && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={f.repeatMonthly}
+                onChange={(event) => setF({ ...f, repeatMonthly: event.target.checked })}
+              />
+              Repetir mensalmente, criando a próxima conta somente após o pagamento
+            </label>
+          )}
           {f.type === "despesa" && selectedCard && (
             <div>
               <Label htmlFor="transaction-invoice">Fatura</Label>
@@ -602,17 +778,28 @@ export function TxDialog({
                         1,
                       ),
                     )}
+                    {" · vence "}
+                    {option.dueDate.split("-").reverse().join("/")}
+                    {" · fecha "}
+                    {option.closingDate.split("-").reverse().join("/")}
                     {" · "}
                     {option.label}
                   </option>
                 ))}
               </select>
               <p className="mt-1 text-xs text-muted-foreground">
-                Sugerida pelo fechamento do cartão; você pode escolher outra fatura em aberto.
+                Sugestão pelo fechamento do cartão. Selecione faturas dos últimos 6 meses ou dos
+                próximos 12.
               </p>
+              {selectedInvoice?.label === "Paga" && paidInvoiceIncrease > 0 && (
+                <p className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-sm text-amber-900 dark:text-amber-100">
+                  Esta fatura já foi paga. Esta compra vai gerar um saldo de{" "}
+                  {brl(paidInvoiceIncrease)} a pagar.
+                </p>
+              )}
             </div>
           )}
-          {!tx && f.type === "despesa" && f.source.startsWith("c:") && (
+          {!tx && f.type === "despesa" && f.status === "paga" && f.source.startsWith("c:") && (
             <div>
               <Label htmlFor="installment-count">Parcelas</Label>
               <select
@@ -633,7 +820,7 @@ export function TxDialog({
               </p>
             </div>
           )}
-          {!tx && (
+          {!tx && f.status === "paga" && (
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label htmlFor="recurrence-count">Repetir</Label>

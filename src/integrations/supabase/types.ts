@@ -319,6 +319,131 @@ export type Database = {
         };
         Relationships: [];
       };
+      savings_goal_movements: {
+        Row: {
+          amount_cents: number;
+          bank_id: string;
+          created_at: string;
+          date: string;
+          goal_id: string;
+          id: string;
+          note: string;
+          type: string;
+          user_id: string;
+        };
+        Insert: {
+          amount_cents: number;
+          bank_id: string;
+          created_at?: string;
+          date?: string;
+          goal_id: string;
+          id?: string;
+          note?: string;
+          type: string;
+          user_id?: string;
+        };
+        Update: {
+          amount_cents?: number;
+          bank_id?: string;
+          created_at?: string;
+          date?: string;
+          goal_id?: string;
+          id?: string;
+          note?: string;
+          type?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "savings_goal_movements_user_bank_fkey";
+            columns: ["user_id", "bank_id"];
+            isOneToOne: false;
+            referencedRelation: "banks";
+            referencedColumns: ["user_id", "id"];
+          },
+          {
+            foreignKeyName: "savings_goal_movements_user_goal_fkey";
+            columns: ["user_id", "goal_id"];
+            isOneToOne: false;
+            referencedRelation: "savings_goals";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
+      savings_goals: {
+        Row: {
+          color: string;
+          created_at: string;
+          deadline: string | null;
+          icon: string;
+          id: string;
+          legacy_balance_cents: number;
+          name: string;
+          status: string;
+          target_cents: number;
+          user_id: string;
+        };
+        Insert: {
+          color?: string;
+          created_at?: string;
+          deadline?: string | null;
+          icon?: string;
+          id?: string;
+          legacy_balance_cents?: number;
+          name: string;
+          status?: string;
+          target_cents: number;
+          user_id?: string;
+        };
+        Update: {
+          color?: string;
+          created_at?: string;
+          deadline?: string | null;
+          icon?: string;
+          id?: string;
+          legacy_balance_cents?: number;
+          name?: string;
+          status?: string;
+          target_cents?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      spending_budgets: {
+        Row: {
+          amount_cents: number;
+          category_id: string;
+          created_at: string;
+          id: string;
+          month: string;
+          user_id: string;
+        };
+        Insert: {
+          amount_cents: number;
+          category_id: string;
+          created_at?: string;
+          id?: string;
+          month: string;
+          user_id?: string;
+        };
+        Update: {
+          amount_cents?: number;
+          category_id?: string;
+          created_at?: string;
+          id?: string;
+          month?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "spending_budgets_user_category_fkey";
+            columns: ["user_id", "category_id"];
+            isOneToOne: false;
+            referencedRelation: "categories";
+            referencedColumns: ["user_id", "id"];
+          },
+        ];
+      };
       transactions: {
         Row: {
           amount_cents: number;
@@ -335,11 +460,15 @@ export type Database = {
           installment_group_id: string | null;
           installment_number: number;
           paid: boolean;
+          paid_at: string | null;
+          payable_series_id: string | null;
           recurrence_count: number;
           recurrence_frequency: string | null;
           recurrence_group_id: string | null;
           recurrence_number: number;
           reference_month: string | null;
+          status: string;
+          due_date: string | null;
           type: string;
           user_id: string;
         };
@@ -358,11 +487,15 @@ export type Database = {
           installment_group_id?: string | null;
           installment_number?: number;
           paid?: boolean;
+          paid_at?: string | null;
+          payable_series_id?: string | null;
           recurrence_count?: number;
           recurrence_frequency?: string | null;
           recurrence_group_id?: string | null;
           recurrence_number?: number;
           reference_month?: string | null;
+          status?: string;
+          due_date?: string | null;
           type: string;
           user_id?: string;
         };
@@ -381,11 +514,15 @@ export type Database = {
           installment_group_id?: string | null;
           installment_number?: number;
           paid?: boolean;
+          paid_at?: string | null;
+          payable_series_id?: string | null;
           recurrence_count?: number;
           recurrence_frequency?: string | null;
           recurrence_group_id?: string | null;
           recurrence_number?: number;
           reference_month?: string | null;
+          status?: string;
+          due_date?: string | null;
           type?: string;
           user_id?: string;
         };
@@ -418,7 +555,41 @@ export type Database = {
             referencedRelation: "categories";
             referencedColumns: ["id"];
           },
+          {
+            foreignKeyName: "transactions_payable_series_fkey";
+            columns: ["user_id", "payable_series_id"];
+            isOneToOne: false;
+            referencedRelation: "payable_series";
+            referencedColumns: ["user_id", "id"];
+          },
         ];
+      };
+      payable_series: {
+        Row: {
+          created_at: string;
+          day_of_month: number;
+          id: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          day_of_month: number;
+          id?: string;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Update: {
+          created_at?: string;
+          day_of_month?: number;
+          id?: string;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       user_profiles: {
         Row: {
@@ -470,6 +641,59 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      create_payable_transaction: {
+        Args: {
+          p_amount_cents: number;
+          p_attachment_path?: string | null;
+          p_category_id?: string | null;
+          p_description: string;
+          p_due_date: string;
+          p_recurring?: boolean;
+          p_transaction_id?: string;
+        };
+        Returns: string;
+      };
+      pay_payable_transaction: {
+        Args: {
+          p_amount_cents: number;
+          p_bank_id: string;
+          p_paid_at: string;
+          p_transaction_id: string;
+        };
+        Returns: string | null;
+      };
+      set_payable_series_status: {
+        Args: { p_series_id: string; p_status: string };
+        Returns: undefined;
+      };
+      create_savings_goal_movement: {
+        Args: {
+          p_amount_cents: number;
+          p_bank_id: string;
+          p_date: string;
+          p_goal_id: string;
+          p_note: string;
+          p_type: string;
+        };
+        Returns: string;
+      };
+      delete_savings_goal_movement: {
+        Args: { p_movement_id: string };
+        Returns: undefined;
+      };
+      reconcile_legacy_savings_goal: {
+        Args: { p_bank_id: string; p_goal_id: string };
+        Returns: string;
+      };
+      update_savings_goal_movement: {
+        Args: {
+          p_amount_cents: number;
+          p_date: string;
+          p_movement_id: string;
+          p_note: string;
+        };
+        Returns: undefined;
+      };
       get_connection_summaries: {
         Args: never;
         Returns: {

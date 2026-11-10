@@ -11,6 +11,7 @@ import {
   loadUserData,
   monthTotals,
   resetStore,
+  savingsAssetsCents,
   transactionReferenceMonth,
   useStore,
 } from "@/lib/store";
@@ -52,7 +53,10 @@ describe("Personal finance loading", () => {
       ["cards", "user_id", owner],
       ["credit_card_invoices", "user_id", owner],
       ["transactions", "user_id", owner],
+      ["savings_goal_movements", "user_id", owner],
+      ["savings_goals", "user_id", owner],
       ["user_settings", "user_id", owner],
+      ["payable_series", "user_id", owner],
     ]);
     const { result } = renderHook(() => useStore());
     expect(result.current.categories).toEqual([
@@ -261,7 +265,8 @@ describe("Personal finance loading", () => {
     expect(invoiceSummary(invoice, state.txs, state.cards[0]).status).toBe("Parcialmente paga");
     expect(cardUsed(state, "card")).toBe(6_000);
     expect(bankBalance(state, "bank")).toBe(96_000);
-    expect(monthTotals(state.txs, "2026-11").expense).toBe(0);
+    expect(monthTotals(state.txs, "2026-10").expense).toBe(0);
+    expect(monthTotals(state.txs, "2026-11").expense).toBe(4_000);
   });
 
   it("uses the reference month for income while bank balance follows receipt date", () => {
@@ -311,9 +316,86 @@ describe("Personal finance loading", () => {
     expect(december.income).toBe(50_000);
     expect(december.cashIncome).toBe(350_000);
     expect(december.list.map((transaction) => transaction.id)).toEqual(["old-income"]);
-    expect(november.balance).toBe(-20_000);
+    expect(november.balance).toBe(280_000);
+    expect(december.balance).toBe(50_000);
     expect(bankBalance(state, "bank")).toBe(350_000 - 20_000);
     expect(transactionReferenceMonth(oldIncome)).toBe("2026-12");
+  });
+
+  it("keeps pending bills out of cash totals and counts them only after payment", () => {
+    const pending = {
+      id: "pending",
+      description: "Conta de água",
+      amount: 25_000,
+      type: "despesa" as const,
+      date: "2020-11-15",
+      dueDate: "2020-11-15",
+      status: "pendente" as const,
+      categoryId: "home",
+    };
+    const paid = {
+      ...pending,
+      status: "paga" as const,
+      bankId: "bank",
+      paidAt: "2020-12-03",
+    };
+    const state = {
+      categories: [],
+      banks: [
+        { id: "bank", name: "Banco", color: "", kind: "Conta Corrente" as const, initial: 80_000 },
+      ],
+      cards: [],
+      invoices: [],
+      txs: [pending],
+    };
+
+    expect(monthTotals(state.txs, "2020-11").list.map((transaction) => transaction.id)).toEqual([
+      "pending",
+    ]);
+    expect(monthTotals(state.txs, "2020-11").expense).toBe(0);
+    expect(bankBalance(state, "bank")).toBe(80_000);
+    expect(monthTotals([paid], "2020-11").expense).toBe(0);
+    expect(monthTotals([paid], "2020-12").expense).toBe(25_000);
+    expect(bankBalance({ ...state, txs: [paid] }, "bank")).toBe(55_000);
+  });
+
+  it("moves contributions and resgates between the bank and goals without changing net worth", () => {
+    const goalMovements = [
+      {
+        id: "contribution",
+        goalId: "goal",
+        type: "aporte" as const,
+        amountCents: 20_000,
+        date: "2026-11-12",
+        bankId: "bank",
+        note: "",
+        createdAt: "2026-11-12T12:00:00Z",
+      },
+      {
+        id: "withdrawal",
+        goalId: "goal",
+        type: "resgate" as const,
+        amountCents: 5_000,
+        date: "2026-11-13",
+        bankId: "bank",
+        note: "",
+        createdAt: "2026-11-13T12:00:00Z",
+      },
+    ];
+    const state = {
+      categories: [],
+      banks: [
+        { id: "bank", name: "Banco", color: "", kind: "Conta Corrente" as const, initial: 100_000 },
+      ],
+      cards: [],
+      invoices: [],
+      txs: [],
+      goalMovements,
+    };
+
+    expect(bankBalance(state, "bank")).toBe(85_000);
+    expect(savingsAssetsCents(goalMovements)).toBe(15_000);
+    expect(bankBalance(state, "bank") + savingsAssetsCents(goalMovements)).toBe(100_000);
   });
 
   it("subtracts a negative card purchase from the invoice and used limit", () => {

@@ -15,14 +15,18 @@ import { Label } from "@/components/ui/label";
 import { MonthPicker, PageTitle, useTxDialog } from "@/components/AppShell";
 import {
   brl,
+  bankBalance,
   cardInvoiceDates,
   cardInvoiceKey,
   cardUsed,
   fmtDate,
+  formatCentsInput,
+  formatCurrencyInput,
   invoiceMonth,
   invoiceSummary,
   monthKey,
   monthLabel,
+  parseCurrencyInput,
   setState,
   transactionInvoiceMonth,
   uid,
@@ -244,7 +248,7 @@ function Cartoes() {
                   <div className="rounded-lg bg-secondary/70 p-3">
                     <p className="text-xs text-muted-foreground">
                       Fatura de {monthLabel(monthDate(selectedMonth))} · vence{" "}
-                      {fmtDate(invoiceDates.dueDate)}
+                      {fmtDate(invoiceDates.dueDate)} · fecha {fmtDate(invoiceDates.closingDate)}
                     </p>
                     <p className="mt-1 text-lg font-bold">{brl(invoiceTotal)}</p>
                   </div>
@@ -436,6 +440,7 @@ function InvoiceDialog({
                       ? ` · Parcela ${item.installmentNumber} de ${item.installmentCount}`
                       : ""}
                     {item.paid ? " · Paga (registro antigo)" : ""}
+                    {!item.paid && summary?.outstanding ? " · Ainda não paga" : ""}
                   </p>
                 </button>
                 <span className={cn("shrink-0 font-medium", item.paid && "text-muted-foreground")}>
@@ -491,7 +496,7 @@ function InvoiceDialog({
               if (invoice && invoiceRecord) onPay(invoice.card, invoiceRecord);
             }}
           >
-            Registrar pagamento
+            Pagar fatura
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -520,13 +525,13 @@ function PaymentDialog({
   useEffect(() => {
     if (!invoice) return;
     setBankId(payment?.bankId ?? store.banks[0]?.id ?? "");
-    setAmount(((payment?.amount ?? outstanding) / 100).toFixed(2).replace(".", ","));
+    setAmount(formatCentsInput(payment?.amount ?? outstanding));
     setDate(payment?.date ?? todayKey());
   }, [invoice, payment, store.banks, outstanding]);
 
   const save = () => {
     if (!card || !invoice || !summary) return;
-    const cents = Math.round(Number(amount.replace(/\./g, "").replace(",", ".")) * 100);
+    const cents = parseCurrencyInput(amount);
     if (!bankId) {
       toast.error("Selecione a conta de origem.");
       return;
@@ -534,6 +539,12 @@ function PaymentDialog({
     const maximum = summary.outstanding + (payment?.amount ?? 0);
     if (!Number.isInteger(cents) || cents <= 0 || cents > maximum) {
       toast.error("Informe um valor positivo que não ultrapasse o saldo em aberto.");
+      return;
+    }
+    const availableBalance =
+      bankBalance(store, bankId) + (payment?.bankId === bankId ? payment.amount : 0);
+    if (cents > availableBalance) {
+      toast.error("A conta selecionada não tem saldo suficiente para este pagamento.");
       return;
     }
     const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
@@ -568,6 +579,8 @@ function PaymentDialog({
       }),
       amount: cents,
       date,
+      paidAt: date,
+      status: "paga",
       bankId,
     };
     setState((current) => ({
@@ -621,7 +634,7 @@ function PaymentDialog({
               <option value="">Selecione uma conta</option>
               {store.banks.map((bank) => (
                 <option key={bank.id} value={bank.id}>
-                  {bank.name}
+                  {bank.name} · saldo {brl(bankBalance(store, bank.id))}
                 </option>
               ))}
             </select>
@@ -632,7 +645,7 @@ function PaymentDialog({
               id="invoice-payment-amount"
               inputMode="decimal"
               value={amount}
-              onChange={(event) => setAmount(event.target.value)}
+              onChange={(event) => setAmount(formatCurrencyInput(event.target.value))}
             />
           </div>
           <div>

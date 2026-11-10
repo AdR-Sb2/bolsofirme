@@ -134,7 +134,7 @@ function Relatorios() {
       : s.cards.find((item) => item.id === selectedSource.id)?.name
     : undefined;
   const stats = [
-    { label: "Total de despesas", value: brl(total), color: "border-l-expense" },
+    { label: "Gastos por categoria", value: brl(total), color: "border-l-expense" },
     { label: "Maior categoria", value: data[0]?.name ?? "—", color: "border-l-orange" },
     { label: "Categorias ativas", value: String(data.length), color: "border-l-balance" },
     { label: "Média por categoria", value: brl(average), color: "border-l-violet" },
@@ -263,7 +263,7 @@ function Relatorios() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <PageTitle
           title="Relatórios"
-          sub="Visualize seus gastos e receitas com gráficos detalhados"
+          sub="Total Saídas usa regime de caixa; gastos por categoria incluem compras no cartão na competência da compra."
         />
         <div className="flex flex-wrap gap-2 print:hidden">
           <Button size="sm" variant="outline" onClick={() => window.print()}>

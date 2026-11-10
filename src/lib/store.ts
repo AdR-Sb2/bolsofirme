@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 export type TxType = "receita" | "despesa";
 export type TransactionType = TxType | "pagamento_fatura";
 export type RecurrenceFrequency = "weekly" | "monthly" | "yearly";
+export type TxStatus = "pendente" | "paga";
 export interface Category {
   id: string;
   name: string;
@@ -35,6 +36,21 @@ export interface CreditCardInvoice {
   closingDate: string;
   dueDate: string;
 }
+export interface SavingsGoalMovement {
+  id: string;
+  goalId: string;
+  type: "aporte" | "resgate";
+  amountCents: number;
+  date: string;
+  bankId: string;
+  note: string;
+  createdAt: string;
+}
+export interface PayableSeries {
+  id: string;
+  status: "ativa" | "pausada" | "encerrada";
+  dayOfMonth: number;
+}
 export interface Tx {
   id: string;
   description: string;
@@ -47,6 +63,10 @@ export interface Tx {
   cardId?: string | undefined;
   invoiceId?: string | undefined;
   paid?: boolean | undefined;
+  status?: TxStatus | undefined;
+  dueDate?: string | undefined;
+  paidAt?: string | undefined;
+  payableSeriesId?: string | undefined;
   installmentGroupId?: string | undefined;
   installmentNumber?: number | undefined;
   installmentCount?: number | undefined;
@@ -62,6 +82,9 @@ export interface State {
   cards: CardC[];
   invoices: CreditCardInvoice[];
   txs: Tx[];
+  goalMovements?: SavingsGoalMovement[];
+  goalNames?: Record<string, string>;
+  payableSeries?: PayableSeries[];
 }
 
 function parseRecurrenceFrequency(value: string | null): RecurrenceFrequency | undefined {
@@ -100,7 +123,16 @@ function seedCategories(): Category[] {
   }));
 }
 
-const empty: State = { categories: [], banks: [], cards: [], invoices: [], txs: [] };
+const empty: State = {
+  categories: [],
+  banks: [],
+  cards: [],
+  invoices: [],
+  txs: [],
+  goalMovements: [],
+  goalNames: {},
+  payableSeries: [],
+};
 let state: State = empty;
 let loadedFor: string | null = null;
 const listeners = new Set<() => void>();
@@ -157,6 +189,10 @@ const toRow = {
     card_id: t.cardId ?? null,
     invoice_id: t.invoiceId ?? null,
     paid: !!t.paid,
+    status: t.status ?? "paga",
+    due_date: t.dueDate ?? null,
+    paid_at: t.paidAt ?? null,
+    payable_series_id: t.payableSeriesId ?? null,
     installment_group_id: t.installmentGroupId ?? null,
     installment_number: t.installmentNumber ?? 1,
     installment_count: t.installmentCount ?? 1,
@@ -169,19 +205,35 @@ const toRow = {
 };
 
 /** Loads the signed-in user's data; seeds default categories, banks and cards on first use. */
-export async function loadUserData(userId: string) {
-  if (loadedFor === userId) return;
+export async function loadUserData(userId: string, force = false) {
+  if (loadedFor === userId && !force) return;
   const { supabase } = await import("@/integrations/supabase/client");
   const db = supabase;
-  const [c, b, k, i, t, settings] = await Promise.all([
+  const [c, b, k, i, t, movements, goals, settings, payableSeries] = await Promise.all([
     db.from("categories").select("*").eq("user_id", userId).order("created_at"),
     db.from("banks").select("*").eq("user_id", userId).order("created_at"),
     db.from("cards").select("*").eq("user_id", userId).order("created_at"),
     db.from("credit_card_invoices").select("*").eq("user_id", userId).order("due_month"),
     db.from("transactions").select("*").eq("user_id", userId).order("date", { ascending: false }),
+    db
+      .from("savings_goal_movements")
+      .select("*")
+      .eq("user_id", userId)
+      .order("date", { ascending: false }),
+    db.from("savings_goals").select("id,name").eq("user_id", userId),
     db.from("user_settings").select("onboarding_complete").eq("user_id", userId).maybeSingle(),
+    db.from("payable_series").select("id,status,day_of_month").eq("user_id", userId),
   ]);
-  const err = c.error || b.error || k.error || i.error || t.error || settings.error;
+  const err =
+    c.error ||
+    b.error ||
+    k.error ||
+    i.error ||
+    t.error ||
+    movements.error ||
+    goals.error ||
+    settings.error ||
+    payableSeries.error;
   if (err) throw err;
   let next: State = {
     categories: (c.data ?? []).map((r) => ({
@@ -228,6 +280,10 @@ export async function loadUserData(userId: string) {
       cardId: r.card_id ?? undefined,
       invoiceId: r.invoice_id ?? undefined,
       paid: r.paid,
+      status: r.status as TxStatus,
+      dueDate: r.due_date ?? undefined,
+      paidAt: r.paid_at ?? undefined,
+      payableSeriesId: r.payable_series_id ?? undefined,
       installmentGroupId: r.installment_group_id ?? undefined,
       installmentNumber: r.installment_number,
       installmentCount: r.installment_count,
@@ -236,6 +292,22 @@ export async function loadUserData(userId: string) {
       recurrenceNumber: r.recurrence_number,
       recurrenceCount: r.recurrence_count,
       attachmentPath: r.attachment_path ?? undefined,
+    })),
+    goalMovements: (movements.data ?? []).map((r) => ({
+      id: r.id,
+      goalId: r.goal_id,
+      type: r.type as SavingsGoalMovement["type"],
+      amountCents: Number(r.amount_cents),
+      date: r.date,
+      bankId: r.bank_id,
+      note: r.note,
+      createdAt: r.created_at,
+    })),
+    goalNames: Object.fromEntries((goals.data ?? []).map((goal) => [goal.id, goal.name])),
+    payableSeries: (payableSeries.data ?? []).map((series) => ({
+      id: series.id,
+      status: series.status as PayableSeries["status"],
+      dayOfMonth: series.day_of_month,
     })),
   };
   if (next.categories.length === 0 && settings.data?.onboarding_complete) {
@@ -344,6 +416,24 @@ export function useLoaded() {
 
 export const brl = (cents: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
+export function formatCurrencyInput(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  return (Number(digits) / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+export function formatCentsInput(cents: number): string {
+  return (cents / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+export function parseCurrencyInput(value: string): number {
+  const digits = value.replace(/\D/g, "");
+  return digits ? Number(digits) : 0;
+}
 export const fmtDate = (iso: string) => iso.split("-").reverse().join("/");
 export const monthKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -489,26 +579,57 @@ export function addRecurrenceDate(
   return dateToIso(dateAtDay(year, date.getMonth(), date.getDate()));
 }
 
-/** Totais do mês. Compras de cartão contam como saída pela data da compra. */
-export function monthTotals(txs: Tx[], month: string, bankId?: string) {
-  const list = txs.filter(
-    (transaction) =>
-      (transaction.type === "receita"
-        ? transactionReferenceMonth(transaction)
-        : transaction.date.slice(0, 7)) === month &&
-      (!bankId || transaction.bankId === bankId),
+export function isPendingPayable(transaction: Tx): boolean {
+  return transaction.status === "pendente";
+}
+
+export function transactionCashDate(transaction: Tx): string {
+  return transaction.paidAt ?? transaction.date;
+}
+
+export function isCashOutflow(transaction: Tx): boolean {
+  return (
+    (transaction.type === "despesa" && !transaction.cardId && !isPendingPayable(transaction)) ||
+    transaction.type === "pagamento_fatura"
   );
+}
+
+/** Totais de entrada e saída por competência de receita e caixa de despesas. */
+export function monthTotals(txs: Tx[], month: string, bankId?: string) {
+  const list = txs.filter((transaction) => {
+    const transactionMonth =
+      transaction.type === "receita"
+        ? !isPendingPayable(transaction)
+          ? transactionReferenceMonth(transaction)
+          : ""
+        : isPendingPayable(transaction)
+          ? transaction.dueDate?.slice(0, 7)
+          : transaction.type === "pagamento_fatura"
+            ? transactionCashDate(transaction).slice(0, 7)
+            : transaction.cardId
+              ? transaction.date.slice(0, 7)
+              : transactionCashDate(transaction).slice(0, 7);
+    return transactionMonth === month && (!bankId || transaction.bankId === bankId);
+  });
   const income = list.filter((t) => t.type === "receita").reduce((a, t) => a + t.amount, 0);
-  const expense = list.filter((t) => t.type === "despesa").reduce((a, t) => a + t.amount, 0);
+  const expense = txs
+    .filter(
+      (transaction) =>
+        isCashOutflow(transaction) &&
+        transactionCashDate(transaction).startsWith(month) &&
+        (!bankId || transaction.bankId === bankId),
+    )
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
   const cashIncome = txs
     .filter(
       (transaction) =>
         transaction.type === "receita" &&
-        transaction.date.startsWith(month) &&
+        !isPendingPayable(transaction) &&
+        transactionCashDate(transaction).startsWith(month) &&
         (!bankId || transaction.bankId === bankId),
     )
     .reduce((sum, transaction) => sum + transaction.amount, 0);
-  return { list, income, cashIncome, expense, balance: cashIncome - expense };
+  return { list, income, cashIncome, expense, balance: income - expense };
 }
 export function transactionReferenceMonth(transaction: Tx): string {
   return transaction.referenceMonth?.slice(0, 7) ?? transaction.date.slice(0, 7);
@@ -517,9 +638,28 @@ export function transactionReferenceMonth(transaction: Tx): string {
 export function bankBalance(s: State, bankId: string) {
   const b = s.banks.find((x) => x.id === bankId);
   const today = dateToIso(new Date());
-  return s.txs
-    .filter((t) => t.bankId === bankId && (!t.recurrenceGroupId || t.date <= today))
+  const transactionBalance = s.txs
+    .filter(
+      (t) =>
+        t.bankId === bankId && !isPendingPayable(t) && (!t.recurrenceGroupId || t.date <= today),
+    )
     .reduce((a, t) => a + (t.type === "receita" ? t.amount : -t.amount), b?.initial ?? 0);
+  const goalMovementBalance = (s.goalMovements ?? [])
+    .filter((movement) => movement.bankId === bankId)
+    .reduce(
+      (balance, movement) =>
+        balance + (movement.type === "aporte" ? -movement.amountCents : movement.amountCents),
+      0,
+    );
+  return transactionBalance + goalMovementBalance;
+}
+
+export function savingsAssetsCents(movements: SavingsGoalMovement[]): number {
+  return movements.reduce(
+    (total, movement) =>
+      total + (movement.type === "aporte" ? movement.amountCents : -movement.amountCents),
+    0,
+  );
 }
 /** Limite usado = compras de cartão ainda não pagas. */
 export function cardUsed(s: State, cardId: string) {
