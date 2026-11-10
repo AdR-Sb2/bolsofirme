@@ -1,13 +1,33 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Trash2, Camera, LockKeyhole, UserRound, Save, PiggyBank, Target, Moon, Sun, History } from "lucide-react";
+import { Trash2, Camera, LockKeyhole, UserRound, Save, PiggyBank, Target, Moon, Sun, History, Pencil, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PageTitle } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
-import { PALETTE, brl, monthKey, setState, uid, useStore } from "@/lib/store";
+import { PALETTE, brl, monthKey, setState, uid, useStore, type Category, type TxType } from "@/lib/store";
 import {
   parseSavingsGoals,
   parseSpendingLimits,
@@ -16,6 +36,86 @@ import {
   type SpendingLimit,
 } from "@/lib/planning";
 import { applyThemePreference, getThemePreference, type ThemePreference } from "@/lib/theme";
+
+const CATEGORY_EMOJIS = [
+  "🏷️", "🍔", "🛒", "🚗", "🏠", "💡", "💊", "📚", "🎮", "✈️",
+  "🐾", "👕", "💰", "💳", "🎁", "🍽️", "☕", "🏋️", "🎵", "📦",
+  "🧾", "🚌", "🛠️", "🌿", "💻", "📱", "🎓", "🏦", "🧹", "❤️",
+];
+
+function EmojiPicker({
+  value,
+  onChange,
+  label,
+}: {
+  value: string;
+  onChange: (emoji: string) => void;
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" aria-label={`${label}: ${value}`}>
+          <span aria-hidden="true" className="mr-2 text-lg">{value}</span>
+          Escolher ícone
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72">
+        <p className="mb-2 text-sm font-medium">Escolha um ícone</p>
+        <div className="grid grid-cols-6 gap-1">
+          {CATEGORY_EMOJIS.map((emoji) => (
+            <Button
+              key={emoji}
+              type="button"
+              size="icon"
+              variant={value === emoji ? "secondary" : "ghost"}
+              aria-label={`Selecionar ${emoji}`}
+              aria-pressed={value === emoji}
+              onClick={() => {
+                onChange(emoji);
+                setOpen(false);
+              }}
+            >
+              <span aria-hidden="true" className="text-lg">{emoji}</span>
+            </Button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ColorPalette({
+  value,
+  onChange,
+  label,
+}: {
+  value: string;
+  onChange: (color: string) => void;
+  label: string;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-medium">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {PALETTE.map((color) => (
+          <button
+            key={color}
+            type="button"
+            className={`h-8 w-8 rounded-full border-2 transition-transform hover:scale-110 ${
+              value === color ? "border-foreground ring-2 ring-ring ring-offset-2 ring-offset-background" : "border-transparent"
+            }`}
+            style={{ backgroundColor: color }}
+            aria-label={`Selecionar cor ${color}`}
+            aria-pressed={value === color}
+            onClick={() => onChange(color)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
   head: () => ({
@@ -36,6 +136,16 @@ function download(name: string, content: string, type: string) {
 function Config() {
   const s = useStore();
   const [name, setName] = useState(""); const [icon, setIcon] = useState("🏷️");
+  const [newCategoryType, setNewCategoryType] = useState<TxType>("despesa");
+  const [categoryColor, setCategoryColor] = useState(PALETTE[0] as string);
+  const [categorySearch, setCategorySearch] = useState("");
+  const [categorySort, setCategorySort] = useState<"name" | "usage">("name");
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editIcon, setEditIcon] = useState("🏷️");
+  const [editColor, setEditColor] = useState(PALETTE[0] as string);
+  const [editType, setEditType] = useState<TxType>("despesa");
+  const [deletingCategory, setDeletingCategory] = useState<Category | null>(null);
   const [profileName, setProfileName] = useState(""); const [email, setEmail] = useState(""); const [avatar, setAvatar] = useState("");
   const [newPassword, setNewPassword] = useState(""); const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
@@ -173,18 +283,81 @@ function Config() {
     }
   };
   const changePassword = async () => { if (newPassword.length < 8) { toast.error("A senha deve ter pelo menos 8 caracteres."); return; } if (newPassword !== confirmNewPassword) { toast.error("As senhas não coincidem."); return; } setProfileBusy(true); try { const { error } = await supabase.auth.updateUser({ password: newPassword }); if (error) throw error; setNewPassword(""); setConfirmNewPassword(""); toast.success("Senha atualizada com sucesso."); } catch (e) { console.error(e); toast.error("Não foi possível alterar a senha."); } finally { setProfileBusy(false); } };
-  const update = (id: string, patch: Record<string, string>) => setState((st) => ({ ...st, categories: st.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+  const update = (id: string, patch: Partial<Category>) => setState((st) => ({ ...st, categories: st.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
   const del = (id: string) => {
-    if (s.txs.some((t) => t.categoryId === id)) { toast.error("Categoria em uso por transações."); return; }
     if (spendingLimits.some((limit) => limit.categoryId === id)) { toast.error("Remova o limite mensal antes de excluir a categoria."); return; }
-    if (!confirm("Excluir categoria?")) return;
-    setState((st) => ({ ...st, categories: st.categories.filter((c) => c.id !== id) })); toast.success("Categoria excluída");
+    setState((st) => ({
+      ...st,
+      categories: st.categories.filter((category) => category.id !== id),
+      txs: st.txs.map((transaction) =>
+        transaction.categoryId === id ? { ...transaction, categoryId: "" } : transaction,
+      ),
+    }));
+    toast.success("Categoria excluída. As transações foram mantidas sem categoria.");
   };
   const add = () => {
-    if (!name.trim()) return;
-    setState((st) => ({ ...st, categories: [...st.categories, { id: uid(), name: name.trim(), icon, color: PALETTE[st.categories.length % PALETTE.length] as string }] }));
-    setName(""); toast.success("Categoria criada");
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      toast.error("Informe um nome para a categoria.");
+      return;
+    }
+    if (s.categories.some((category) => category.name.toLocaleLowerCase("pt-BR") === trimmedName.toLocaleLowerCase("pt-BR"))) {
+      toast.error("Já existe uma categoria com esse nome.");
+      return;
+    }
+    setState((st) => ({
+      ...st,
+      categories: [...st.categories, { id: uid(), name: trimmedName, icon, color: categoryColor, type: newCategoryType }],
+    }));
+    setName("");
+    setIcon("🏷️");
+    setCategoryColor(PALETTE[0] as string);
+    setNewCategoryType("despesa");
+    toast.success("Categoria criada");
   };
+  const openCategoryEditor = (category: Category) => {
+    setEditingCategory(category);
+    setEditName(category.name);
+    setEditIcon(category.icon);
+    setEditColor(category.color);
+    setEditType(category.type);
+  };
+  const saveCategoryEdit = () => {
+    const trimmedName = editName.trim();
+    if (!editingCategory || !trimmedName) {
+      toast.error("Informe um nome para a categoria.");
+      return;
+    }
+    if (s.categories.some((category) =>
+      category.id !== editingCategory.id &&
+      category.name.toLocaleLowerCase("pt-BR") === trimmedName.toLocaleLowerCase("pt-BR")
+    )) {
+      toast.error("Já existe uma categoria com esse nome.");
+      return;
+    }
+    if (
+      editType === "receita" &&
+      editingCategory.type !== "receita" &&
+      spendingLimits.some((limit) => limit.categoryId === editingCategory.id)
+    ) {
+      toast.error("Remova o limite mensal antes de transformar esta categoria em receita.");
+      return;
+    }
+    update(editingCategory.id, { name: trimmedName, icon: editIcon, color: editColor, type: editType });
+    setEditingCategory(null);
+    toast.success("Categoria atualizada.");
+  };
+  const categoryUsage = new Map<string, number>();
+  for (const transaction of s.txs) {
+    if (transaction.categoryId) {
+      categoryUsage.set(transaction.categoryId, (categoryUsage.get(transaction.categoryId) ?? 0) + 1);
+    }
+  }
+  const visibleCategories = s.categories
+    .filter((category) => category.name.toLocaleLowerCase("pt-BR").includes(categorySearch.trim().toLocaleLowerCase("pt-BR")))
+    .sort((a, b) => categorySort === "name"
+      ? a.name.localeCompare(b.name, "pt-BR")
+      : (categoryUsage.get(b.id) ?? 0) - (categoryUsage.get(a.id) ?? 0) || a.name.localeCompare(b.name, "pt-BR"));
   const csv = () => {
     const lines = [["Data", "Descrição", "Valor", "Tipo", "Categoria"], ...s.txs.map((t) => [t.date, t.description, (t.amount / 100).toFixed(2), t.type, s.categories.find((c) => c.id === t.categoryId)?.name ?? ""])];
     download("bolsofirme.csv", lines.map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv");
@@ -234,7 +407,12 @@ function Config() {
   };
   const saveLimit = () => {
     const amountCents = Math.round(Number(limitValue) * 100);
-    if (!selectedCategory || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+    if (
+      !selectedCategory ||
+      !s.categories.some((category) => category.id === selectedCategory && category.type === "despesa") ||
+      !Number.isSafeInteger(amountCents) ||
+      amountCents <= 0
+    ) {
       toast.error("Selecione uma categoria e informe um limite maior que zero.");
       return;
     }
@@ -293,7 +471,7 @@ function Config() {
       .filter((tx) => tx.categoryId === limit.categoryId)
       .reduce((sum, tx) => sum + tx.amount, 0);
     return { ...limit, category, spentCents, progress: progressPercent(spentCents, limit.amountCents) };
-  });
+  }).filter((budget) => !budget.category || budget.category.type === "despesa");
 
   return (
     <div className="max-w-3xl space-y-5">
@@ -307,19 +485,181 @@ function Config() {
         <div className="mb-3 flex items-center gap-2"><LockKeyhole className="h-5 w-5 text-primary"/><h3 className="font-semibold">Segurança e senha</h3></div><p className="mb-3 text-sm text-muted-foreground">Defina uma senha para entrar também com e-mail e senha. Para contas Google, isso não altera a senha da sua conta Google.</p><div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">Nova senha</label><Input type="password" autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="Mínimo de 8 caracteres"/></div><div><label className="mb-1 block text-sm font-medium">Confirmar nova senha</label><Input type="password" autoComplete="new-password" value={confirmNewPassword} onChange={e=>setConfirmNewPassword(e.target.value)} placeholder="Repita a senha"/></div></div><Button variant="outline" className="mt-3" onClick={()=>void changePassword()} disabled={profileBusy}>Atualizar senha</Button>
       </section>
       <section className="rounded-xl border border-border bg-card p-5">
-        <h3 className="mb-4 font-semibold">Categorias</h3>
-        <div className="mb-4 flex gap-2"><Input className="w-16" value={icon} onChange={(e) => setIcon(e.target.value)} /><Input placeholder="Nova categoria" value={name} onChange={(e) => setName(e.target.value)} /><Button onClick={add}>Adicionar</Button></div>
-        <div className="grid gap-2">
-          {s.categories.map((c) => (
-            <div key={c.id} className="flex items-center gap-2">
-              <input type="color" aria-label="Cor" className="h-9 w-9 shrink-0 rounded bg-transparent" value={c.color} onChange={(e) => update(c.id, { color: e.target.value })} />
-              <Input className="w-16" value={c.icon} onChange={(e) => update(c.id, { icon: e.target.value })} />
-              <Input value={c.name} onChange={(e) => update(c.id, { name: e.target.value })} />
-              <Button variant="outline" size="icon" aria-label="Excluir" onClick={() => del(c.id)}><Trash2 className="h-4 w-4 text-expense" /></Button>
+        <div className="mb-4">
+          <h3 className="font-semibold">Categorias</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Organize seus lançamentos com ícones e cores fáceis de reconhecer.</p>
+        </div>
+        <div className="mb-5 grid gap-3 rounded-lg border border-border bg-background/40 p-3">
+          <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end">
+            <div>
+              <span className="mb-1 block text-sm font-medium">Ícone</span>
+              <EmojiPicker value={icon} onChange={setIcon} label="Ícone da nova categoria" />
             </div>
-          ))}
+            <div>
+              <label htmlFor="new-category-type" className="mb-1 block text-sm font-medium">Tipo</label>
+              <select
+                id="new-category-type"
+                className="mb-2 h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
+                value={newCategoryType}
+                onChange={(event) => setNewCategoryType(event.target.value as TxType)}
+              >
+                <option value="despesa">Despesa</option>
+                <option value="receita">Receita</option>
+              </select>
+              <label htmlFor="new-category-name" className="mb-1 block text-sm font-medium">Nome da categoria</label>
+              <Input
+                id="new-category-name"
+                value={name}
+                maxLength={40}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Ex.: Mercado"
+                onKeyDown={(event) => { if (event.key === "Enter") add(); }}
+              />
+            </div>
+            <Button onClick={add} disabled={!name.trim()}>Adicionar categoria</Button>
+          </div>
+          <ColorPalette value={categoryColor} onChange={setCategoryColor} label="Cor da nova categoria" />
+        </div>
+        <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+          <div className="relative">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              aria-label="Buscar categoria"
+              value={categorySearch}
+              onChange={(event) => setCategorySearch(event.target.value)}
+              placeholder="Buscar categoria"
+            />
+          </div>
+          <div>
+            <label htmlFor="category-sort" className="sr-only">Ordenar categorias</label>
+            <select
+              id="category-sort"
+              className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm sm:w-auto"
+              value={categorySort}
+              onChange={(event) => setCategorySort(event.target.value as "name" | "usage")}
+            >
+              <option value="name">Ordem alfabética</option>
+              <option value="usage">Mais transações</option>
+            </select>
+          </div>
+        </div>
+        <div className="grid gap-2">
+          {visibleCategories.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+              {s.categories.length === 0 ? "Nenhuma categoria cadastrada." : "Nenhuma categoria encontrada."}
+            </p>
+          ) : visibleCategories.map((category) => {
+            const count = categoryUsage.get(category.id) ?? 0;
+            return (
+              <div key={category.id} className="flex min-w-0 items-center gap-3 rounded-lg border border-border px-3 py-2">
+                <span
+                  aria-hidden="true"
+                  className="h-3 w-3 shrink-0 rounded-full"
+                  style={{ backgroundColor: category.color }}
+                />
+                <span aria-hidden="true" className="text-lg">{category.icon}</span>
+                <span className="min-w-0 flex-1 truncate font-medium">{category.name}</span>
+                <Badge variant="outline" className="shrink-0">
+                  {category.type === "receita" ? "Receita" : "Despesa"}
+                </Badge>
+                <Badge variant="secondary" className="hidden shrink-0 sm:inline-flex">
+                  {count} {count === 1 ? "transação" : "transações"}
+                </Badge>
+                <span className="sr-only">{count} {count === 1 ? "transação" : "transações"}</span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label={`Editar categoria ${category.name}`}
+                  onClick={() => openCategoryEditor(category)}
+                >
+                  <Pencil aria-hidden="true" className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Excluir categoria ${category.name}`}
+                  onClick={() => setDeletingCategory(category)}
+                >
+                  <Trash2 aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </div>
+            );
+          })}
         </div>
       </section>
+      <Dialog open={Boolean(editingCategory)} onOpenChange={(open) => { if (!open) setEditingCategory(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar categoria</DialogTitle>
+            <DialogDescription>Altere o nome, o ícone e a cor usados para identificar esta categoria.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div>
+              <label htmlFor="edit-category-name" className="mb-1 block text-sm font-medium">Nome da categoria</label>
+              <Input
+                id="edit-category-name"
+                value={editName}
+                maxLength={40}
+                onChange={(event) => setEditName(event.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="edit-category-type" className="mb-1 block text-sm font-medium">Tipo</label>
+              <select
+                id="edit-category-type"
+                className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
+                value={editType}
+                onChange={(event) => setEditType(event.target.value as TxType)}
+              >
+                <option value="despesa">Despesa</option>
+                <option value="receita">Receita</option>
+              </select>
+            </div>
+            <div>
+              <span className="mb-1 block text-sm font-medium">Ícone</span>
+              <EmojiPicker value={editIcon} onChange={setEditIcon} label="Ícone da categoria" />
+            </div>
+            <ColorPalette value={editColor} onChange={setEditColor} label="Cor da categoria" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingCategory(null)}>Cancelar</Button>
+            <Button onClick={saveCategoryEdit} disabled={!editName.trim()}>Salvar alterações</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <AlertDialog open={Boolean(deletingCategory)} onOpenChange={(open) => { if (!open) setDeletingCategory(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir categoria?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingCategory && (() => {
+                const count = categoryUsage.get(deletingCategory.id) ?? 0;
+                return (
+                  <>
+                    A categoria “{deletingCategory.name}” está vinculada a {count} {count === 1 ? "transação" : "transações"}.
+                    {" "}Essas transações serão mantidas, mas ficarão sem categoria. Esta ação não pode ser desfeita.
+                    {spendingLimits.some((limit) => limit.categoryId === deletingCategory.id) &&
+                      " Remova o limite mensal dessa categoria antes de excluí-la."}
+                  </>
+                );
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deletingCategory) del(deletingCategory.id);
+                setDeletingCategory(null);
+              }}
+            >
+              Excluir categoria
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <section className="rounded-xl border border-border bg-card p-5">
         <div className="mb-4 flex items-center gap-2">
           <PiggyBank className="h-5 w-5 text-primary" />
@@ -348,7 +688,7 @@ function Config() {
                   disabled={planningBusy || s.categories.length === 0}
                 >
                   <option value="">Selecionar categoria</option>
-                  {s.categories.map((category) => (
+                  {s.categories.filter((category) => category.type === "despesa").map((category) => (
                     <option key={category.id} value={category.id}>{category.icon} {category.name}</option>
                   ))}
                 </select>

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
 import {
   addMonthsToDate,
   addRecurrenceDate,
@@ -8,6 +9,7 @@ import {
   cardUsed,
   loadUserData,
   resetStore,
+  useStore,
 } from "@/lib/store";
 
 const mocks = vi.hoisted(() => ({ from: vi.fn() }));
@@ -26,14 +28,16 @@ describe("Personal finance loading", () => {
       select: () => ({
         eq: (...args: unknown[]) => {
           filters.push([table, ...args]);
+          const result = {
+            error: null,
+            data:
+              table === "categories"
+                ? [{ id: "category", name: "Salário", icon: "💰", color: "", type: "receita" }]
+                : [],
+          };
           return {
-            order: async () => ({
-              error: null,
-              data:
-                table === "categories"
-                  ? [{ id: "category", name: "Salário", icon: "💰", color: "" }]
-                  : [],
-            }),
+            order: async () => result,
+            maybeSingle: async () => ({ error: null, data: null }),
           };
         },
       }),
@@ -44,6 +48,11 @@ describe("Personal finance loading", () => {
       ["banks", "user_id", owner],
       ["cards", "user_id", owner],
       ["transactions", "user_id", owner],
+      ["user_settings", "user_id", owner],
+    ]);
+    const { result } = renderHook(() => useStore());
+    expect(result.current.categories).toEqual([
+      { id: "category", name: "Salário", icon: "💰", color: "", type: "receita" },
     ]);
   });
 
@@ -133,12 +142,64 @@ describe("Personal finance loading", () => {
     });
   });
 
-  it("reports failure when default categories cannot be persisted", async () => {
+  it("does not seed categories before onboarding is complete", async () => {
+    const insert = vi.fn();
+    mocks.from.mockImplementation((table: string) => ({
+      select: () => ({
+        eq: () => ({
+          order: async () => ({ data: [], error: null }),
+          maybeSingle: async () => ({ data: null, error: null }),
+        }),
+      }),
+      insert,
+    }));
+
+    await loadUserData("new-user");
+
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("seeds minimum typed defaults for completed accounts without categories", async () => {
     const failure = new Error("write rejected");
-    mocks.from.mockImplementation(() => ({
-      select: () => ({ eq: () => ({ order: async () => ({ data: [], error: null }) }) }),
+    mocks.from.mockImplementation((table: string) => ({
+      select: () => ({
+        eq: () => ({
+          order: async () => ({ data: [], error: null }),
+          maybeSingle: async () => ({
+            data: table === "user_settings" ? { onboarding_complete: true } : null,
+            error: null,
+          }),
+        }),
+      }),
       insert: async () => ({ error: failure }),
     }));
     await expect(loadUserData("owner")).rejects.toThrow("write rejected");
+  });
+
+  it("uses a minimal income and expense default set for completed accounts", async () => {
+    let insertedCategories: Record<string, unknown>[] = [];
+    mocks.from.mockImplementation((table: string) => ({
+      select: () => ({
+        eq: () => ({
+          order: async () => ({ data: [], error: null }),
+          maybeSingle: async () => ({
+            data: table === "user_settings" ? { onboarding_complete: true } : null,
+            error: null,
+          }),
+        }),
+      }),
+      insert: async (rows: Record<string, unknown>[]) => {
+        insertedCategories = rows;
+        return { error: null };
+      },
+    }));
+
+    await loadUserData("completed-user");
+
+    expect(insertedCategories).toHaveLength(2);
+    expect(insertedCategories.map(({ name, type }) => [name, type])).toEqual([
+      ["Mercado", "despesa"],
+      ["Salário", "receita"],
+    ]);
   });
 });

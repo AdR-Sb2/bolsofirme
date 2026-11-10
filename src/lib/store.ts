@@ -7,6 +7,7 @@ export interface Category {
   name: string;
   icon: string;
   color: string;
+  type: TxType;
 }
 export interface Bank {
   id: string;
@@ -76,34 +77,16 @@ const PALETTE = [
   "#10b981",
   "#64748b",
 ];
-const DEFAULT_CATS: [string, string][] = [
-  ["Transporte", "🚗"],
-  ["Alimentação", "🍔"],
-  ["Saúde", "💊"],
-  ["Educação", "📚"],
-  ["Lazer", "🎮"],
-  ["Streaming", "📺"],
-  ["Internet", "🌐"],
-  ["Vestuário", "👕"],
-  ["Perfume", "🌸"],
-  ["Eletrônicos", "💻"],
-  ["Peças", "🔧"],
-  ["Consertos", "🛠️"],
-  ["Empréstimo", "🏦"],
-  ["Curso", "🎓"],
-  ["Salário", "💰"],
+export const MINIMUM_DEFAULT_CATEGORIES: Omit<Category, "id">[] = [
+  { name: "Mercado", icon: "🛒", color: "#22c55e", type: "despesa" },
+  { name: "Salário", icon: "💰", color: "#3b82f6", type: "receita" },
 ];
 
-function seed(): State {
-  const categories = DEFAULT_CATS.map(([name, icon], i) => ({
+function seedCategories(): Category[] {
+  return MINIMUM_DEFAULT_CATEGORIES.map((category) => ({
     id: uid(),
-    name,
-    icon,
-    color: PALETTE[i % PALETTE.length] as string,
+    ...category,
   }));
-  const banks: Bank[] = [];
-  const cards: CardC[] = [];
-  return { categories, banks, cards, txs: [] };
 }
 
 const empty: State = { categories: [], banks: [], cards: [], txs: [] };
@@ -120,6 +103,7 @@ const toRow = {
     name: c.name,
     icon: c.icon,
     color: c.color,
+    type: c.type,
   }),
   banks: (b: Bank, u: string) => ({
     id: b.id,
@@ -168,13 +152,14 @@ export async function loadUserData(userId: string) {
   if (loadedFor === userId) return;
   const { supabase } = await import("@/integrations/supabase/client");
   const db = supabase;
-  const [c, b, k, t] = await Promise.all([
+  const [c, b, k, t, settings] = await Promise.all([
     db.from("categories").select("*").eq("user_id", userId).order("created_at"),
     db.from("banks").select("*").eq("user_id", userId).order("created_at"),
     db.from("cards").select("*").eq("user_id", userId).order("created_at"),
     db.from("transactions").select("*").eq("user_id", userId).order("date", { ascending: false }),
+    db.from("user_settings").select("onboarding_complete").eq("user_id", userId).maybeSingle(),
   ]);
-  const err = c.error || b.error || k.error || t.error;
+  const err = c.error || b.error || k.error || t.error || settings.error;
   if (err) throw err;
   let next: State = {
     categories: (c.data ?? []).map((r) => ({
@@ -182,6 +167,7 @@ export async function loadUserData(userId: string) {
       name: r.name,
       icon: r.icon,
       color: r.color,
+      type: r.type === "receita" ? "receita" : "despesa",
     })),
     banks: (b.data ?? []).map((r) => ({
       id: r.id,
@@ -221,9 +207,8 @@ export async function loadUserData(userId: string) {
       attachmentPath: r.attachment_path ?? undefined,
     })),
   };
-  if (next.categories.length === 0) {
-    const sd = seed();
-    next = { ...next, categories: sd.categories, banks: next.banks, cards: next.cards };
+  if (next.categories.length === 0 && settings.data?.onboarding_complete) {
+    next = { ...next, categories: seedCategories() };
     const { error } = await supabase
       .from("categories")
       .insert(next.categories.map((x) => toRow.categories(x, userId)));

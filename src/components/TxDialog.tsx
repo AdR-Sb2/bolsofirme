@@ -48,7 +48,7 @@ export function TxDialog({
     amount: "",
     type: "despesa",
     date: new Date().toISOString().slice(0, 10),
-    categoryId: s.categories[0]?.id ?? "",
+    categoryId: s.categories.find((category) => category.type === "despesa")?.id ?? "",
     source: "b:" + (s.banks[0]?.id ?? ""),
     installments: "1",
     recurrenceCount: "1",
@@ -59,6 +59,14 @@ export function TxDialog({
   const [removeReceipt, setRemoveReceipt] = useState(false);
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const categoriesForType = s.categories.filter((category) => category.type === f.type);
+  const currentCategory = tx
+    ? s.categories.find((category) => category.id === f.categoryId)
+    : undefined;
+  const visibleCategories =
+    currentCategory && !categoriesForType.some((category) => category.id === currentCategory.id)
+      ? [...categoriesForType, currentCategory]
+      : categoriesForType;
   useEffect(() => {
     if (!open) return;
     setF(
@@ -313,7 +321,16 @@ export function TxDialog({
                 key={t}
                 type="button"
                 variant={f.type === t ? "default" : "outline"}
-                onClick={() => setF({ ...f, type: t })}
+                aria-pressed={f.type === t}
+                onClick={() =>
+                  setF({
+                    ...f,
+                    type: t,
+                    categoryId: tx
+                      ? f.categoryId
+                      : (s.categories.find((category) => category.type === t)?.id ?? ""),
+                  })
+                }
               >
                 {t === "receita" ? "Receita" : "Despesa"}
               </Button>
@@ -346,13 +363,15 @@ export function TxDialog({
             </div>
           </div>
           <div>
-            <Label>Categoria</Label>
+            <Label htmlFor="transaction-category">Categoria</Label>
             <select
+              id="transaction-category"
               className={sel}
               value={f.categoryId}
               onChange={(e) => setF({ ...f, categoryId: e.target.value })}
             >
-              {s.categories.map((c) => (
+              <option value="">Sem categoria</option>
+              {visibleCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.icon} {c.name}
                 </option>
