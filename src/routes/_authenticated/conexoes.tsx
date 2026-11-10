@@ -44,8 +44,17 @@ function Conexoes(){
   const rows:Request[]=r.data??[];
   setRequests(rows);
   setPermissions(Object.fromEntries((perms.data??[]).map((x:any)=>[x.viewer_id,x])));
-  const {data:summaryRows,error:summaryError}=await supabase.rpc("shared_finance_summary");
-  if(!summaryError)setShared(Object.fromEntries((summaryRows??[]).map((x:any)=>[x.user_id,{banks:Number(x.banks),transactions:Number(x.transactions),investments:Number(x.investments),income:Number(x.income),expense:Number(x.expense),assets:Number(x.assets)}])));
+  const acceptedIds=rows.filter(x=>x.status==="accepted").map(x=>x.sender_id===user.id?x.recipient_id:x.sender_id);
+  const summaries=await Promise.all(acceptedIds.map(async(ownerId)=>{
+   const [banks,transactions,investments]=await Promise.all([
+    db.from("banks").select("id",{count:"exact",head:true}).eq("user_id",ownerId),
+    db.from("transactions").select("amount_cents,type").eq("user_id",ownerId),
+    db.from("investments").select("id",{count:"exact",head:true}).eq("user_id",ownerId)
+   ]);
+   const txs=transactions.data??[];
+   return [ownerId,{banks:banks.count??0,transactions:transactions.count??txs.length,investments:investments.count??0,income:txs.filter((x:any)=>x.type==="receita").reduce((sum:number,x:any)=>sum+Number(x.amount_cents),0),expense:txs.filter((x:any)=>x.type==="despesa").reduce((sum:number,x:any)=>sum+Number(x.amount_cents),0),assets:0}] as const;
+  }));
+  setShared(Object.fromEntries(summaries));
   setLoading(false);
  };
  useEffect(()=>{void load();},[]);
