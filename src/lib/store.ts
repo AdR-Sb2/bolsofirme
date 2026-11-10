@@ -20,7 +20,6 @@ const DEFAULT_CATS: [string, string][] = [
 
 function seed(): State {
   const categories = DEFAULT_CATS.map(([name, icon], i) => ({ id: uid(), name, icon, color: PALETTE[i % PALETTE.length] as string }));
-  const cat = (n: string) => categories.find((c) => c.name === n)!.id;
   const banks: Bank[] = [];
   const cards: CardC[] = [];
   return { categories, banks, cards, txs: [] };
@@ -44,12 +43,12 @@ const toRow = {
 export async function loadUserData(userId: string) {
   if (loadedFor === userId) return;
   const { supabase } = await import("@/integrations/supabase/client");
-  const db = supabase as any;
+  const db = supabase;
   const [c, b, k, t] = await Promise.all([
-    db.from("categories").select("*").order("created_at"),
-    db.from("banks").select("*").order("created_at"),
-    db.from("cards").select("*").order("created_at"),
-    db.from("transactions").select("*").order("date", { ascending: false }),
+    db.from("categories").select("*").eq("user_id", userId).order("created_at"),
+    db.from("banks").select("*").eq("user_id", userId).order("created_at"),
+    db.from("cards").select("*").eq("user_id", userId).order("created_at"),
+    db.from("transactions").select("*").eq("user_id", userId).order("date", { ascending: false }),
   ]);
   const err = c.error || b.error || k.error || t.error;
   if (err) throw err;
@@ -62,7 +61,8 @@ export async function loadUserData(userId: string) {
   if (next.categories.length === 0) {
     const sd = seed();
     next = { ...next, categories: sd.categories, banks: next.banks, cards: next.cards };
-    await supabase.from("categories").insert(next.categories.map((x) => toRow.categories(x, userId)));
+    const { error } = await supabase.from("categories").insert(next.categories.map((x) => toRow.categories(x, userId)));
+    if (error) throw error;
 
   }
   state = next; loadedFor = userId; emit();

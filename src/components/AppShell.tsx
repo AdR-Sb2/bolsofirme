@@ -35,7 +35,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <nav className="grid gap-1">{!collapsed && <p className="px-2 pb-1 text-xs text-muted-foreground">Principal</p>}{main.map((i) => <NavItem key={i.to} {...i} />)}</nav>
     <nav className="grid gap-1">{!collapsed && <p className="px-2 pb-1 text-xs text-muted-foreground">Conta</p>}<NavItem to="/configuracoes" label="Configurações" icon={Settings} /></nav>
   </aside>;
-  return <Ctx.Provider value={(tx) => setDlg({ open: true, tx })}><div className="flex min-h-screen">
+  return <Ctx.Provider value={(tx) => setDlg({ open: true, tx: tx ?? null })}><div className="flex min-h-screen">
     <div className="sticky top-0 hidden h-screen md:block">{sidebar}</div>
     {mobile && <div className="fixed inset-0 z-50 flex bg-background/70 md:hidden" onClick={() => setMobile(false)}><div onClick={(e) => e.stopPropagation()} className="relative">{sidebar}<button className="absolute right-2 top-3" onClick={() => setMobile(false)} aria-label="Fechar menu"><X className="h-5 w-5" /></button></div></div>}
     <div className="flex min-w-0 flex-1 flex-col"><header className="flex h-14 items-center justify-between border-b border-border px-4"><div className="flex items-center gap-3"><button className="md:hidden" onClick={() => setMobile(true)} aria-label="Abrir menu"><Menu className="h-5 w-5" /></button><button className="hidden md:block" onClick={() => setCollapsed(!collapsed)} aria-label="Recolher menu"><PanelLeft className="h-4 w-4" /></button><h1 className="font-semibold">{current}</h1></div><Button size="sm" onClick={() => setDlg({ open: true, tx: null })}><PlusCircle className="h-4 w-4" />Nova transação</Button></header><main className="flex-1 p-4 md:p-6">{children}</main></div>

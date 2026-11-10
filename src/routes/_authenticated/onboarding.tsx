@@ -32,16 +32,15 @@ function Onboarding(){
   try{
    const {data:{user}}=await supabase.auth.getUser();
    if(!user){toast.error("Sua sessão expirou. Entre novamente.");setSaving(false);return;}
-   const banks:Bank[]=selected.map(name=>{const b=CATALOG.find(x=>x[0]===name)!;return{id:uid(),name,color:b[1],logo:b[2],kind:"Conta Corrente",initial:0};});
+   const banks:Bank[]=selected.flatMap(name=>{const b=CATALOG.find(x=>x[0]===name);return b?[{id:uid(),name,color:b[1],logo:b[2],kind:"Conta Corrente" as const,initial:0}]:[];});
    const bankInsert=banks.map(b=>({id:b.id,user_id:user.id,name:b.name,color:b.color,logo:b.logo,kind:b.kind,initial_cents:0}));
    const cardInsert:CardC[]=cards.map(c=>({id:uid(),name:c.bank+" • "+c.brand,bank:c.bank,brand:c.brand,color:"#64748b",limit:Math.round(Number(c.limit)*100),closing:Number(c.closing),due:Number(c.due)}));
    const db=supabase as any;
-   const [br,cr,sr]=await Promise.all([
-    db.from("banks").insert(bankInsert),
-    db.from("cards").insert(cardInsert.map(c=>({id:c.id,user_id:user.id,name:c.name,bank:c.bank,brand:c.brand,color:c.color,limit_cents:c.limit,closing_day:c.closing,due_day:c.due}))),
-    db.from("user_settings").upsert({user_id:user.id,onboarding_complete:true,selected_banks:selected})
-   ]);
-   if(br.error||cr.error||sr.error){console.error(br.error,cr.error,sr.error);toast.error("Não foi possível salvar. Confira se a configuração do banco de dados foi aplicada.");setSaving(false);return;}
+   const {error:bankError}=await db.from("banks").upsert(bankInsert);
+   if(bankError)throw bankError;
+   if(cardInsert.length){const {error:cardError}=await db.from("cards").upsert(cardInsert.map(c=>({id:c.id,user_id:user.id,name:c.name,bank:c.bank,brand:c.brand,color:c.color,limit_cents:c.limit,closing_day:c.closing,due_day:c.due})));if(cardError)throw cardError;}
+   const {error:settingsError}=await db.from("user_settings").upsert({user_id:user.id,onboarding_complete:true,selected_banks:selected});
+   if(settingsError)throw settingsError;
    setState(st=>({...st,banks,cards:cardInsert}));
    toast.success("Tudo pronto! Sua carteira foi criada.");
    nav({to:"/transacoes"});
