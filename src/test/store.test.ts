@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addMonthsToDate,
+  addRecurrenceDate,
+  bankBalance,
   cardInvoiceDates,
   cardInvoiceKey,
+  cardUsed,
   loadUserData,
   resetStore,
 } from "@/lib/store";
@@ -66,6 +69,67 @@ describe("Personal finance loading", () => {
     it("clamps installment dates to each month's last day", () => {
       expect(addMonthsToDate("2026-01-31", 1)).toBe("2026-02-28");
       expect(addMonthsToDate("2026-01-31", 2)).toBe("2026-03-31");
+    });
+  });
+
+  describe("Recurring transaction dates", () => {
+    it("keeps monthly dates clamped instead of drifting after short months", () => {
+      expect(addRecurrenceDate("2026-01-31", "monthly", 1)).toBe("2026-02-28");
+      expect(addRecurrenceDate("2026-01-31", "monthly", 2)).toBe("2026-03-31");
+    });
+
+    it("does not include future scheduled occurrences in current balances or card usage", () => {
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const futureDate = addRecurrenceDate(today, "weekly", 1);
+      const state = {
+        categories: [],
+        banks: [
+          { id: "bank", name: "Banco", color: "", kind: "Conta Corrente" as const, initial: 1000 },
+        ],
+        cards: [],
+        txs: [
+          {
+            id: "future-bank",
+            description: "Conta recorrente",
+            amount: 250,
+            type: "despesa" as const,
+            date: futureDate,
+            categoryId: "",
+            bankId: "bank",
+            recurrenceGroupId: "bank-series",
+          },
+          {
+            id: "future-card",
+            description: "Assinatura recorrente",
+            amount: 300,
+            type: "despesa" as const,
+            date: futureDate,
+            categoryId: "",
+            cardId: "card",
+            recurrenceGroupId: "card-series",
+          },
+          {
+            id: "today-card",
+            description: "Assinatura de hoje",
+            amount: 100,
+            type: "despesa" as const,
+            date: today,
+            categoryId: "",
+            cardId: "card",
+            recurrenceGroupId: "today-series",
+          },
+        ],
+      };
+
+      expect(bankBalance(state, "bank")).toBe(1000);
+      expect(cardUsed(state, "card")).toBe(100);
+    });
+
+    it("advances weekly and yearly occurrences across leap years", () => {
+      expect(addRecurrenceDate("2026-06-10", "weekly", 2)).toBe("2026-06-24");
+      expect(addRecurrenceDate("2024-02-29", "yearly", 1)).toBe("2025-02-28");
+      expect(addRecurrenceDate("2024-02-29", "yearly", 4)).toBe("2028-02-29");
     });
   });
 

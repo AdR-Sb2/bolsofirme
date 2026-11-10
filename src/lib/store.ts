@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 export type TxType = "receita" | "despesa";
+export type RecurrenceFrequency = "weekly" | "monthly" | "yearly";
 export interface Category {
   id: string;
   name: string;
@@ -38,12 +39,22 @@ export interface Tx {
   installmentGroupId?: string | undefined;
   installmentNumber?: number | undefined;
   installmentCount?: number | undefined;
+  recurrenceGroupId?: string | undefined;
+  recurrenceFrequency?: RecurrenceFrequency | undefined;
+  recurrenceNumber?: number | undefined;
+  recurrenceCount?: number | undefined;
 }
 export interface State {
   categories: Category[];
   banks: Bank[];
   cards: CardC[];
   txs: Tx[];
+}
+
+function parseRecurrenceFrequency(value: string | null): RecurrenceFrequency | undefined {
+  if (value === null) return undefined;
+  if (value === "weekly" || value === "monthly" || value === "yearly") return value;
+  throw new RangeError(`Invalid recurrence frequency: ${value}`);
 }
 
 export const uid = () => crypto.randomUUID();
@@ -143,6 +154,10 @@ const toRow = {
     installment_group_id: t.installmentGroupId ?? null,
     installment_number: t.installmentNumber ?? 1,
     installment_count: t.installmentCount ?? 1,
+    recurrence_group_id: t.recurrenceGroupId ?? null,
+    recurrence_frequency: t.recurrenceFrequency ?? null,
+    recurrence_number: t.recurrenceNumber ?? 1,
+    recurrence_count: t.recurrenceCount ?? 1,
   }),
 };
 
@@ -197,6 +212,10 @@ export async function loadUserData(userId: string) {
       installmentGroupId: r.installment_group_id ?? undefined,
       installmentNumber: r.installment_number,
       installmentCount: r.installment_count,
+      recurrenceGroupId: r.recurrence_group_id ?? undefined,
+      recurrenceFrequency: parseRecurrenceFrequency(r.recurrence_frequency),
+      recurrenceNumber: r.recurrence_number,
+      recurrenceCount: r.recurrence_count,
     })),
   };
   if (next.categories.length === 0) {
@@ -369,6 +388,24 @@ export function addMonthsToDate(iso: string, months: number): string {
   return dateToIso(dateAtDay(targetMonth.getFullYear(), targetMonth.getMonth(), date.getDate()));
 }
 
+/** Advances a recurring transaction date without drifting across short months. */
+export function addRecurrenceDate(
+  iso: string,
+  frequency: RecurrenceFrequency,
+  step: number,
+): string {
+  const date = dateFromIso(iso);
+  if (!Number.isInteger(step) || step < 0) throw new RangeError(`Invalid recurrence step: ${step}`);
+  if (frequency === "monthly") return addMonthsToDate(iso, step);
+  const target = new Date(date);
+  if (frequency === "weekly") {
+    target.setDate(target.getDate() + step * 7);
+    return dateToIso(target);
+  }
+  const year = date.getFullYear() + step;
+  return dateToIso(dateAtDay(year, date.getMonth(), date.getDate()));
+}
+
 /** Totais do mês. Compras de cartão contam como saída pela data da compra. */
 export function monthTotals(txs: Tx[], month: string, bankId?: string) {
   const list = txs.filter((t) => t.date.startsWith(month) && (!bankId || t.bankId === bankId));
@@ -379,12 +416,16 @@ export function monthTotals(txs: Tx[], month: string, bankId?: string) {
 /** Saldo do banco considera só transações com bankId. */
 export function bankBalance(s: State, bankId: string) {
   const b = s.banks.find((x) => x.id === bankId);
+  const today = dateToIso(new Date());
   return s.txs
-    .filter((t) => t.bankId === bankId)
+    .filter((t) => t.bankId === bankId && (!t.recurrenceGroupId || t.date <= today))
     .reduce((a, t) => a + (t.type === "receita" ? t.amount : -t.amount), b?.initial ?? 0);
 }
 /** Limite usado = compras de cartão ainda não pagas. */
 export function cardUsed(s: State, cardId: string) {
-  return s.txs.filter((t) => t.cardId === cardId && !t.paid).reduce((a, t) => a + t.amount, 0);
+  const today = dateToIso(new Date());
+  return s.txs
+    .filter((t) => t.cardId === cardId && !t.paid && (!t.recurrenceGroupId || t.date <= today))
+    .reduce((a, t) => a + t.amount, 0);
 }
 export { PALETTE };

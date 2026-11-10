@@ -10,7 +10,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { addMonthsToDate, setState, uid, useStore, type Tx } from "@/lib/store";
+import {
+  addMonthsToDate,
+  addRecurrenceDate,
+  setState,
+  uid,
+  useStore,
+  type RecurrenceFrequency,
+  type Tx,
+} from "@/lib/store";
 
 const sel = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
 
@@ -42,6 +50,8 @@ export function TxDialog({
     categoryId: s.categories[0]?.id ?? "",
     source: "b:" + (s.banks[0]?.id ?? ""),
     installments: "1",
+    recurrenceCount: "1",
+    recurrenceFrequency: "monthly" as RecurrenceFrequency,
   };
   const [f, setF] = useState(empty);
   useEffect(() => {
@@ -56,6 +66,8 @@ export function TxDialog({
             categoryId: tx.categoryId,
             source: tx.cardId ? "c:" + tx.cardId : "b:" + tx.bankId,
             installments: String(tx.installmentCount ?? 1),
+            recurrenceCount: String(tx.recurrenceCount ?? 1),
+            recurrenceFrequency: tx.recurrenceFrequency ?? "monthly",
           }
         : empty,
     );
@@ -73,8 +85,17 @@ export function TxDialog({
       return;
     }
     const installmentCount = tx ? 1 : Number(f.installments);
+    const recurrenceCount = tx ? 1 : Number(f.recurrenceCount);
     if (!Number.isInteger(installmentCount) || installmentCount < 1 || installmentCount > 36) {
       toast.error("Escolha entre 1 e 36 parcelas.");
+      return;
+    }
+    if (!Number.isInteger(recurrenceCount) || recurrenceCount < 1 || recurrenceCount > 36) {
+      toast.error("Escolha entre 1 e 36 ocorrências.");
+      return;
+    }
+    if (installmentCount > 1 && recurrenceCount > 1) {
+      toast.error("Uma transação não pode ser parcelada e recorrente ao mesmo tempo.");
       return;
     }
     const [k, id] = f.source.split(":");
@@ -103,6 +124,10 @@ export function TxDialog({
       installmentGroupId: tx?.installmentGroupId,
       installmentNumber: tx?.installmentNumber,
       installmentCount: tx?.installmentCount ?? 1,
+      recurrenceGroupId: tx?.recurrenceGroupId,
+      recurrenceFrequency: tx?.recurrenceFrequency,
+      recurrenceNumber: tx?.recurrenceNumber,
+      recurrenceCount: tx?.recurrenceCount ?? 1,
     };
     if (tx) {
       setState((st) => ({ ...st, txs: st.txs.map((t) => (t.id === tx.id ? data : t)) }));
@@ -121,6 +146,18 @@ export function TxDialog({
         installmentCount,
       }));
       setState((st) => ({ ...st, txs: [...st.txs, ...installments] }));
+    } else if (recurrenceCount > 1) {
+      const recurrenceGroupId = uid();
+      const recurringTransactions = Array.from({ length: recurrenceCount }, (_, index): Tx => ({
+        ...data,
+        id: uid(),
+        date: addRecurrenceDate(f.date, f.recurrenceFrequency, index),
+        recurrenceGroupId,
+        recurrenceFrequency: f.recurrenceFrequency,
+        recurrenceNumber: index + 1,
+        recurrenceCount,
+      }));
+      setState((st) => ({ ...st, txs: [...st.txs, ...recurringTransactions] }));
     } else {
       setState((st) => ({ ...st, txs: [...st.txs, data] }));
     }
@@ -129,19 +166,26 @@ export function TxDialog({
   };
   const remove = () => {
     if (!tx) return;
-    const grouped = Boolean(tx.installmentGroupId);
+    const installmentGroupId = tx.installmentGroupId;
+    const recurrenceGroupId = tx.recurrenceGroupId;
     if (
       !confirm(
-        grouped
+        installmentGroupId
           ? "Excluir todas as parcelas desta compra, inclusive as já registradas como pagas?"
-          : "Excluir esta transação?",
+          : recurrenceGroupId
+            ? "Excluir todas as ocorrências desta transação recorrente?"
+            : "Excluir esta transação?",
       )
     )
       return;
     setState((st) => ({
       ...st,
       txs: st.txs.filter((t) =>
-        grouped ? t.installmentGroupId !== tx.installmentGroupId : t.id !== tx.id,
+        installmentGroupId
+          ? t.installmentGroupId !== installmentGroupId
+          : recurrenceGroupId
+            ? t.recurrenceGroupId !== recurrenceGroupId
+            : t.id !== tx.id,
       ),
     }));
     toast.success("Transação excluída");
@@ -153,6 +197,12 @@ export function TxDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{tx ? "Editar Transação" : "Nova Transação"}</DialogTitle>
+          {tx?.recurrenceGroupId && (
+            <p className="text-sm text-muted-foreground">
+              Ocorrência {tx.recurrenceNumber} de {tx.recurrenceCount}. As alterações afetam somente
+              esta ocorrência.
+            </p>
+          )}
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid grid-cols-2 gap-2">
@@ -249,6 +299,46 @@ export function TxDialog({
                 O valor informado é o total da compra; as parcelas serão lançadas nas faturas
                 seguintes.
               </p>
+            </div>
+          )}
+          {!tx && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label htmlFor="recurrence-count">Repetir</Label>
+                <select
+                  id="recurrence-count"
+                  className={sel}
+                  value={f.recurrenceCount}
+                  onChange={(e) => setF({ ...f, recurrenceCount: e.target.value })}
+                >
+                  {Array.from({ length: 36 }, (_, index) => index + 1).map((count) => (
+                    <option key={count} value={count}>
+                      {count === 1 ? "Não repetir" : `${count} vezes`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="recurrence-frequency">Frequência</Label>
+                <select
+                  id="recurrence-frequency"
+                  className={sel}
+                  value={f.recurrenceFrequency}
+                  disabled={f.recurrenceCount === "1"}
+                  onChange={(e) =>
+                    setF({ ...f, recurrenceFrequency: e.target.value as RecurrenceFrequency })
+                  }
+                >
+                  <option value="weekly">Semanal</option>
+                  <option value="monthly">Mensal</option>
+                  <option value="yearly">Anual</option>
+                </select>
+              </div>
+              {f.recurrenceCount !== "1" && (
+                <p className="col-span-2 text-xs text-muted-foreground">
+                  Serão criados {f.recurrenceCount} lançamentos com o mesmo valor, incluindo este.
+                </p>
+              )}
             </div>
           )}
         </div>

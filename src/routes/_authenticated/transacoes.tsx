@@ -75,7 +75,7 @@ function Transacoes() {
               <span className={cn("h-2 w-2 shrink-0 rounded-full", inc ? "bg-income" : "bg-expense")} />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold">{t.description}</div>
-                <div className="truncate text-xs text-muted-foreground">{c?.name} • {src} • {fmtDate(t.date)}</div>
+                <div className="truncate text-xs text-muted-foreground">{c?.name} • {src} • {fmtDate(t.date)}{t.recurrenceGroupId && <> • Recorrência {t.recurrenceFrequency === "weekly" ? "semanal" : t.recurrenceFrequency === "yearly" ? "anual" : "mensal"} ({t.recurrenceNumber}/{t.recurrenceCount})</>}</div>
               </div>
               <div className="text-right">
                 <div className={cn("font-semibold", inc ? "text-income" : "text-expense")}>{inc ? "+" : ""}{brl(t.amount)}</div>

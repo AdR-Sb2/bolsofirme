@@ -211,6 +211,10 @@ export type Database = {
           installment_group_id: string | null;
           installment_number: number;
           paid: boolean;
+          recurrence_count: number;
+          recurrence_frequency: string | null;
+          recurrence_group_id: string | null;
+          recurrence_number: number;
           type: string;
           user_id: string;
         };
@@ -227,6 +231,10 @@ export type Database = {
           installment_group_id?: string | null;
           installment_number?: number;
           paid?: boolean;
+          recurrence_count?: number;
+          recurrence_frequency?: string | null;
+          recurrence_group_id?: string | null;
+          recurrence_number?: number;
           type: string;
           user_id?: string;
         };
@@ -243,6 +251,10 @@ export type Database = {
           installment_group_id?: string | null;
           installment_number?: number;
           paid?: boolean;
+          recurrence_count?: number;
+          recurrence_frequency?: string | null;
+          recurrence_group_id?: string | null;
+          recurrence_number?: number;
           type?: string;
           user_id?: string;
         };
