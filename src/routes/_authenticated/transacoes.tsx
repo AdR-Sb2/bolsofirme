@@ -191,8 +191,11 @@ function Transacoes() {
     .reduce((sum, transaction) => sum + transaction.amount, 0);
   const projectedExpense = isCurrentMonth ? (expenseToDate / elapsedDays) * daysInMonth : null;
   const projectedIncome = isCurrentMonth ? (incomeToDate / elapsedDays) * daysInMonth : null;
+  const filteredGoalMovements = (s.goalMovements ?? []).filter(
+    (movement) => movement.date.startsWith(monthKey(date)),
+  );
   const netWorth =
-    monthlyTotals.balance + investmentAssetsCents + savingsAssetsCents(s.goalMovements ?? []);
+    monthlyTotals.balance + investmentAssetsCents + savingsAssetsCents(filteredGoalMovements);
   const payables = s.txs.filter(isPendingPayable);
   const overduePayables = payables.filter((transaction) =>
     transaction.dueDate ? transaction.dueDate < todayIso : false,
