@@ -37,10 +37,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (alive) setProfile({ name: data?.display_name || user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "Minha conta", avatar: data?.avatar_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || "", email: user.email || "" });
     };
     void load();
+    window.addEventListener("profile-updated", load);
     const { data: { subscription } } = supabase.auth.onAuthStateChange(() => { void load(); });
-    return () => { alive = false; subscription.unsubscribe(); };
+    return () => { alive = false; window.removeEventListener("profile-updated", load); subscription.unsubscribe(); };
   }, []);
-  const initials = profile.name.trim().split(/\\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "BF";
+  const initials = profile.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "BF";
   const signOut = async () => { await supabase.auth.signOut(); window.location.assign("/auth"); };
   const all = [...main, { to: "/configuracoes", label: "Configurações", icon: Settings }];
   const current = all.find((i) => i.to === path)?.label ?? "";
