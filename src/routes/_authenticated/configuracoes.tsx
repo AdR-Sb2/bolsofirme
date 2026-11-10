@@ -1,12 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Trash2, Camera, LockKeyhole, UserRound, Save } from "lucide-react";
+import { Trash2, Camera, LockKeyhole, UserRound, Save, PiggyBank, Target } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { PageTitle } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
-import { PALETTE, setState, uid, useStore } from "@/lib/store";
+import { PALETTE, brl, monthKey, setState, uid, useStore } from "@/lib/store";
+import {
+  parseSavingsGoals,
+  parseSpendingLimits,
+  progressPercent,
+  type SavingsGoal,
+  type SpendingLimit,
+} from "@/lib/planning";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
   head: () => ({
@@ -30,7 +38,48 @@ function Config() {
   const [profileName, setProfileName] = useState(""); const [email, setEmail] = useState(""); const [avatar, setAvatar] = useState("");
   const [newPassword, setNewPassword] = useState(""); const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
+  const [spendingLimits, setSpendingLimits] = useState<SpendingLimit[]>([]);
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
+  const [planningReady, setPlanningReady] = useState(false);
+  const [planningBusy, setPlanningBusy] = useState(false);
+  const [planningError, setPlanningError] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [limitValue, setLimitValue] = useState("");
+  const [goalName, setGoalName] = useState("");
+  const [goalTarget, setGoalTarget] = useState("");
+  const [contributions, setContributions] = useState<Record<string, string>>({});
   useEffect(() => { void (async () => { const { data: { user } } = await supabase.auth.getUser(); if (!user) return; const { data } = await supabase.from("user_profiles").select("display_name,avatar_url").eq("user_id", user.id).maybeSingle(); setProfileName(data?.display_name || user.user_metadata?.["full_name"] || user.user_metadata?.["name"] || ""); setAvatar(data?.avatar_url || user.user_metadata?.["avatar_url"] || user.user_metadata?.["picture"] || ""); setEmail(user.email || ""); })(); }, []);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        if (!user) throw new Error("No authenticated user.");
+        const { data, error } = await supabase
+          .from("user_settings")
+          .select("spending_limits,savings_goals")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (error) throw error;
+        const limits = parseSpendingLimits(data?.spending_limits);
+        const goals = parseSavingsGoals(data?.savings_goals);
+        if (active) {
+          setSpendingLimits(limits);
+          setSavingsGoals(goals);
+        }
+      } catch (error) {
+        console.error("[Planning] Failed to load budgets and savings goals.", error);
+        if (active) {
+          setPlanningError(true);
+          toast.error("Não foi possível carregar o planejamento. Verifique a migration de orçamento e metas no Supabase.");
+        }
+      } finally {
+        if (active) setPlanningReady(true);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
   const saveProfile = async () => { const { data: { user } } = await supabase.auth.getUser(); if (!user) { toast.error("Entre novamente na sua conta."); return; } if (profileName.trim().length < 2) { toast.error("Informe um nome com pelo menos 2 caracteres."); return; } setProfileBusy(true); try { const { error } = await supabase.from("user_profiles").upsert({ user_id: user.id, display_name: profileName.trim(), avatar_url: avatar }); if (error) throw error; const { error: metadataError } = await supabase.auth.updateUser({ data: { full_name: profileName.trim(), name: profileName.trim() } }); if (metadataError) throw metadataError; toast.success("Perfil atualizado."); window.dispatchEvent(new Event("profile-updated")); } catch (e) { console.error(e); toast.error("Não foi possível salvar seu perfil."); } finally { setProfileBusy(false); } };
   const uploadAvatar = async (file?: File) => {
     if (!file) return;
@@ -99,6 +148,7 @@ function Config() {
   const update = (id: string, patch: Record<string, string>) => setState((st) => ({ ...st, categories: st.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
   const del = (id: string) => {
     if (s.txs.some((t) => t.categoryId === id)) { toast.error("Categoria em uso por transações."); return; }
+    if (spendingLimits.some((limit) => limit.categoryId === id)) { toast.error("Remova o limite mensal antes de excluir a categoria."); return; }
     if (!confirm("Excluir categoria?")) return;
     setState((st) => ({ ...st, categories: st.categories.filter((c) => c.id !== id) })); toast.success("Categoria excluída");
   };
@@ -111,6 +161,95 @@ function Config() {
     const lines = [["Data", "Descrição", "Valor", "Tipo", "Categoria"], ...s.txs.map((t) => [t.date, t.description, (t.amount / 100).toFixed(2), t.type, s.categories.find((c) => c.id === t.categoryId)?.name ?? ""])];
     download("bolsofirme.csv", lines.map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv");
   };
+  const persistPlanning = async (limits: SpendingLimit[], goals: SavingsGoal[]) => {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+    if (!user) throw new Error("No authenticated user.");
+    const { error } = await supabase.from("user_settings").upsert({
+      user_id: user.id,
+      spending_limits: limits,
+      savings_goals: goals,
+    });
+    if (error) throw error;
+    setSpendingLimits(limits);
+    setSavingsGoals(goals);
+  };
+  const savePlanning = async (limits: SpendingLimit[], goals: SavingsGoal[]) => {
+    setPlanningBusy(true);
+    try {
+      await persistPlanning(limits, goals);
+      setPlanningError(false);
+      return true;
+    } catch (error) {
+      console.error("[Planning] Failed to save budgets and savings goals.", error);
+      toast.error("Não foi possível salvar. Verifique se a migration de orçamento e metas foi aplicada.");
+      return false;
+    } finally {
+      setPlanningBusy(false);
+    }
+  };
+  const saveLimit = () => {
+    const amountCents = Math.round(Number(limitValue) * 100);
+    if (!selectedCategory || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+      toast.error("Selecione uma categoria e informe um limite maior que zero.");
+      return;
+    }
+    const next = [
+      ...spendingLimits.filter((limit) => limit.categoryId !== selectedCategory),
+      { categoryId: selectedCategory, amountCents },
+    ];
+    void savePlanning(next, savingsGoals).then((saved) => {
+      if (saved) {
+        setLimitValue("");
+        toast.success("Limite mensal salvo.");
+      }
+    });
+  };
+  const saveGoal = () => {
+    const targetCents = Math.round(Number(goalTarget) * 100);
+    const trimmedName = goalName.trim();
+    if (!trimmedName || !Number.isSafeInteger(targetCents) || targetCents <= 0) {
+      toast.error("Informe o nome da meta e um valor-alvo maior que zero.");
+      return;
+    }
+    const next = [...savingsGoals, { id: uid(), name: trimmedName, targetCents, savedCents: 0 }];
+    void savePlanning(spendingLimits, next).then((saved) => {
+      if (saved) {
+        setGoalName("");
+        setGoalTarget("");
+        toast.success("Meta de economia criada.");
+      }
+    });
+  };
+  const addContribution = (goal: SavingsGoal) => {
+    const amountCents = Math.round(Number(contributions[goal.id]) * 100);
+    if (
+      !Number.isSafeInteger(amountCents) ||
+      amountCents <= 0 ||
+      !Number.isSafeInteger(goal.savedCents + amountCents)
+    ) {
+      toast.error("Informe um valor para adicionar à meta.");
+      return;
+    }
+    const next = savingsGoals.map((item) => item.id === goal.id
+      ? { ...item, savedCents: item.savedCents + amountCents }
+      : item);
+    void savePlanning(spendingLimits, next).then((saved) => {
+      if (saved) {
+        setContributions((current) => ({ ...current, [goal.id]: "" }));
+        toast.success("Progresso da meta atualizado.");
+      }
+    });
+  };
+  const currentMonth = monthKey(new Date());
+  const monthlyExpenses = s.txs.filter((tx) => tx.type === "despesa" && tx.date.slice(0, 7) === currentMonth);
+  const budgetRows = spendingLimits.map((limit) => {
+    const category = s.categories.find((item) => item.id === limit.categoryId);
+    const spentCents = monthlyExpenses
+      .filter((tx) => tx.categoryId === limit.categoryId)
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    return { ...limit, category, spentCents, progress: progressPercent(spentCents, limit.amountCents) };
+  });
 
   return (
     <div className="max-w-3xl space-y-5">
@@ -136,6 +275,168 @@ function Config() {
             </div>
           ))}
         </div>
+      </section>
+      <section className="rounded-xl border border-border bg-card p-5">
+        <div className="mb-4 flex items-center gap-2">
+          <PiggyBank className="h-5 w-5 text-primary" />
+          <div>
+            <h3 className="font-semibold">Orçamento e metas</h3>
+            <p className="text-sm text-muted-foreground">Limites por categoria neste mês e objetivos de economia.</p>
+          </div>
+        </div>
+        {planningError && (
+          <p role="alert" className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            Planejamento indisponível. Aplique a migration 20261110000700_spending_limits_savings_goals.sql no Supabase e recarregue a página.
+          </p>
+        )}
+        {!planningReady ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">Carregando orçamento e metas…</p>
+        ) : !planningError && (
+          <div className="space-y-6">
+            <div>
+              <h4 className="mb-3 font-medium">Limites mensais por categoria</h4>
+              <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <select
+                  className="h-9 min-w-0 rounded-md border border-input bg-card px-3 text-sm"
+                  aria-label="Categoria do limite"
+                  value={selectedCategory}
+                  onChange={(event) => setSelectedCategory(event.target.value)}
+                  disabled={planningBusy || s.categories.length === 0}
+                >
+                  <option value="">Selecionar categoria</option>
+                  {s.categories.map((category) => (
+                    <option key={category.id} value={category.id}>{category.icon} {category.name}</option>
+                  ))}
+                </select>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={limitValue}
+                  onChange={(event) => setLimitValue(event.target.value)}
+                  placeholder="Limite mensal (R$)"
+                  aria-label="Valor do limite mensal"
+                  disabled={planningBusy}
+                />
+                <Button onClick={saveLimit} disabled={planningBusy || !selectedCategory}>Salvar limite</Button>
+              </div>
+              {budgetRows.length === 0 ? (
+                <p className="mt-4 text-sm text-muted-foreground">
+                  Nenhum limite definido. Escolha uma categoria e um valor para acompanhar seus gastos.
+                </p>
+              ) : (
+                <div className="mt-4 grid gap-3">
+                  {budgetRows.map((budget) => (
+                    <div key={budget.categoryId} className="rounded-lg border border-border p-3">
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          {budget.category?.icon} {budget.category?.name ?? "Categoria removida"}
+                        </span>
+                        <span className={`text-xs font-medium ${budget.progress >= 100 ? "text-destructive" : "text-muted-foreground"}`}>
+                          {brl(budget.spentCents)} de {brl(budget.amountCents)}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Excluir limite de ${budget.category?.name ?? "categoria"}`}
+                          disabled={planningBusy}
+                          onClick={() => void savePlanning(
+                            spendingLimits.filter((item) => item.categoryId !== budget.categoryId),
+                            savingsGoals,
+                          )}
+                        >
+                          <Trash2 className="h-4 w-4 text-expense" />
+                        </Button>
+                      </div>
+                      <Progress value={budget.progress} aria-label={`Orçamento usado: ${Math.round(budget.progress)}%`} />
+                      {budget.progress >= 100 && (
+                        <p className="mt-2 text-xs text-destructive">Limite mensal atingido ou ultrapassado.</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="border-t border-border pt-5">
+              <div className="mb-3 flex items-center gap-2">
+                <Target className="h-4 w-4 text-primary" />
+                <h4 className="font-medium">Metas de economia</h4>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <Input
+                  value={goalName}
+                  onChange={(event) => setGoalName(event.target.value)}
+                  placeholder="Ex.: Viagem ou novo computador"
+                  aria-label="Nome da meta"
+                  disabled={planningBusy}
+                />
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={goalTarget}
+                  onChange={(event) => setGoalTarget(event.target.value)}
+                  placeholder="Valor-alvo (R$)"
+                  aria-label="Valor-alvo da meta"
+                  disabled={planningBusy}
+                />
+                <Button onClick={saveGoal} disabled={planningBusy}>Criar meta</Button>
+              </div>
+              {savingsGoals.length === 0 ? (
+                <p className="mt-4 text-sm text-muted-foreground">
+                  Crie uma meta para acompanhar o progresso de uma compra ou viagem.
+                </p>
+              ) : (
+                <div className="mt-4 grid gap-3">
+                  {savingsGoals.map((goal) => (
+                    <div key={goal.id} className="rounded-lg border border-border p-3">
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">{goal.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {brl(goal.savedCents)} de {brl(goal.targetCents)}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Excluir meta ${goal.name}`}
+                          disabled={planningBusy}
+                          onClick={() => void savePlanning(
+                            spendingLimits,
+                            savingsGoals.filter((item) => item.id !== goal.id),
+                          )}
+                        >
+                          <Trash2 className="h-4 w-4 text-expense" />
+                        </Button>
+                      </div>
+                      <Progress
+                        value={progressPercent(goal.savedCents, goal.targetCents)}
+                        aria-label={`Meta concluída: ${Math.round(progressPercent(goal.savedCents, goal.targetCents))}%`}
+                      />
+                      <div className="mt-3 flex gap-2">
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={contributions[goal.id] ?? ""}
+                          onChange={(event) => setContributions((current) => ({
+                            ...current,
+                            [goal.id]: event.target.value,
+                          }))}
+                          placeholder="Adicionar valor (R$)"
+                          aria-label={`Valor para adicionar à meta ${goal.name}`}
+                          disabled={planningBusy}
+                        />
+                        <Button variant="outline" onClick={() => addContribution(goal)} disabled={planningBusy}>
+                          Adicionar
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </section>
       <section className="rounded-xl border border-border bg-card p-5">
         <h3 className="mb-2 font-semibold">Privacidade e conexões</h3><p className="mb-3 text-sm text-muted-foreground">Gerencie convites e escolha quais informações financeiras compartilha.</p><Button variant="outline" onClick={()=>window.location.assign("/conexoes")}>Gerenciar conexões e compartilhamento</Button><h3 className="mb-2 mt-5 font-semibold">Preferências</h3>

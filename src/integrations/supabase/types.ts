@@ -310,16 +310,22 @@ export type Database = {
         Row: {
           onboarding_complete: boolean;
           selected_banks: string[];
+          spending_limits: Json;
+          savings_goals: Json;
           user_id: string;
         };
         Insert: {
           onboarding_complete?: boolean;
           selected_banks?: string[];
+          spending_limits?: Json;
+          savings_goals?: Json;
           user_id?: string;
         };
         Update: {
           onboarding_complete?: boolean;
           selected_banks?: string[];
+          spending_limits?: Json;
+          savings_goals?: Json;
           user_id?: string;
         };
         Relationships: [];
