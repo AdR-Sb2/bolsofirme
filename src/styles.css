@@ -122,3 +122,43 @@
     font-family: var(--font-sans);
   }
 }
+
+@page {
+  size: A4;
+  margin: 14mm;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .report-print-area,
+  .report-print-area * {
+    visibility: visible !important;
+  }
+
+  .report-print-area {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    max-width: none !important;
+    color: #111 !important;
+    background: #fff !important;
+  }
+
+  .report-print-area .bg-card,
+  .report-print-area .bg-secondary {
+    color: #111 !important;
+    background: #fff !important;
+  }
+
+  .report-print-area .text-muted-foreground {
+    color: #444 !important;
+  }
+
+  .report-print-area .border,
+  .report-print-area [class*="border-"] {
+    border-color: #bbb !important;
+  }
+}
