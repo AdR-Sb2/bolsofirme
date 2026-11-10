@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getExceededSpendingLimits,
   parseSavingsGoals,
   parseSpendingLimits,
   progressPercent,
@@ -30,5 +31,16 @@ describe("Budget and savings planning", () => {
     expect(progressPercent(2500, 10000)).toBe(25);
     expect(progressPercent(12000, 10000)).toBe(100);
     expect(() => progressPercent(1, 0)).toThrow("Progress target must be a positive number.");
+  });
+
+  it("reports only categories that exceed their spending limit", () => {
+    const limits = [
+      { categoryId: "food", amountCents: 50000 },
+      { categoryId: "transport", amountCents: 20000 },
+    ];
+
+    expect(
+      getExceededSpendingLimits(limits, { food: 50000, transport: 27500, other: 90000 }),
+    ).toEqual([{ ...limits[1], spentCents: 27500, overByCents: 7500 }]);
   });
 });

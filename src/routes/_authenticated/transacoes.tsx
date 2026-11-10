@@ -1,12 +1,21 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Filter, Search, TrendingDown, TrendingUp, Wallet, Landmark } from "lucide-react";
+import {
+  AlertTriangle,
+  Filter,
+  Search,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+  Landmark,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MonthPicker, useTxDialog } from "@/components/AppShell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
+import { getExceededSpendingLimits, parseSpendingLimits, type SpendingLimit } from "@/lib/planning";
 import { bankBalance, brl, cardUsed, fmtDate, monthKey, monthTotals, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +45,7 @@ function Transacoes() {
   const [showFilters, setShowFilters] = useState(true);
   const [investmentAssetsCents, setInvestmentAssetsCents] = useState(0);
   const [assetsLoading, setAssetsLoading] = useState(true);
+  const [spendingLimits, setSpendingLimits] = useState<SpendingLimit[]>([]);
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -64,6 +74,33 @@ function Transacoes() {
       }
     })();
     return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        if (!user) throw new Error("No authenticated user.");
+        const { data, error } = await supabase
+          .from("user_settings")
+          .select("spending_limits")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (error) throw error;
+        const limits = parseSpendingLimits(data?.spending_limits);
+        if (active) setSpendingLimits(limits);
+      } catch (error) {
+        console.error("[Transactions] Failed to load spending limits.", error);
+        if (active) toast.error("Não foi possível carregar os limites de gastos.");
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, []);
   const monthList = monthTotals(s.txs, monthKey(date)).list;
   const list = monthList.filter((transaction) => {
@@ -110,6 +147,13 @@ function Transacoes() {
       return `${t.description} ${categoryName} ${sourceName}`.toLocaleLowerCase("pt-BR").includes(query);
     })
     .sort((a, b) => b.date.localeCompare(a.date));
+  const spendingByCategory = monthList
+    .filter((transaction) => transaction.type === "despesa")
+    .reduce<Record<string, number>>((totals, transaction) => {
+      totals[transaction.categoryId] = (totals[transaction.categoryId] ?? 0) + transaction.amount;
+      return totals;
+    }, {});
+  const exceededLimits = getExceededSpendingLimits(spendingLimits, spendingByCategory);
 
   const cards = [
     { label: "Total Entradas", value: income, cls: "text-income", Icon: TrendingUp },
@@ -149,6 +193,37 @@ function Transacoes() {
           </p>
         )}
       </section>
+      {exceededLimits.length > 0 && (
+        <section
+          className="rounded-xl border border-destructive/40 bg-destructive/5 p-4"
+          role="alert"
+          aria-labelledby="exceeded-limits-title"
+        >
+          <div className="mb-2 flex items-center gap-2 font-semibold text-destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <h2 id="exceeded-limits-title">
+              Limite{exceededLimits.length > 1 ? "s ultrapassados" : " ultrapassado"} em{" "}
+              {date.toLocaleDateString("pt-BR", { month: "long" })}
+            </h2>
+          </div>
+          <ul className="space-y-1 text-sm">
+            {exceededLimits.map((limit) => {
+              const category = s.categories.find((item) => item.id === limit.categoryId);
+              return (
+                <li key={limit.categoryId}>
+                  <span className="font-medium">{category?.name ?? "Categoria"}</span>
+                  {": "}
+                  {brl(limit.spentCents)} gastos — {brl(limit.overByCents)} acima do limite de{" "}
+                  {brl(limit.amountCents)}.
+                </li>
+              );
+            })}
+          </ul>
+          <Button asChild size="sm" variant="outline" className="mt-3">
+            <Link to="/configuracoes">Revisar orçamento</Link>
+          </Button>
+        </section>
+      )}
       {showFilters && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="relative sm:col-span-2 lg:col-span-1">

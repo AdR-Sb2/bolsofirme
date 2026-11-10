@@ -4,6 +4,11 @@ export interface SpendingLimit {
   amountCents: number;
 }
 
+export interface ExceededSpendingLimit extends SpendingLimit {
+  spentCents: number;
+  overByCents: number;
+}
+
 export interface SavingsGoal {
   [key: string]: string | number;
   id: string;
@@ -31,6 +36,18 @@ export function parseSpendingLimits(value: unknown): SpendingLimit[] {
       throw new TypeError("Invalid spending limit data.");
     }
     return { categoryId: item["categoryId"], amountCents: item["amountCents"] };
+  });
+}
+
+export function getExceededSpendingLimits(
+  limits: SpendingLimit[],
+  spendingByCategory: Record<string, number>,
+): ExceededSpendingLimit[] {
+  return limits.flatMap((limit) => {
+    const spentCents = spendingByCategory[limit.categoryId] ?? 0;
+    return spentCents > limit.amountCents
+      ? [{ ...limit, spentCents, overByCents: spentCents - limit.amountCents }]
+      : [];
   });
 }
 
