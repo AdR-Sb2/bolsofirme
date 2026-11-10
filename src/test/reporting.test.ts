@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareMonthlyPeriods, previousMonthKey } from "@/lib/reporting";
+import { compareMonthlyPeriods, previousMonthKey, reportMonthTotals } from "@/lib/reporting";
 
 describe("Period reports", () => {
   it("finds the previous month across year boundaries", () => {
@@ -22,15 +22,17 @@ describe("Period reports", () => {
     expect(comparison.balanceChange).toBe(4000);
   });
 
-  it("handles zero previous totals and filters both periods by bank", () => {
+  it("handles zero previous totals and filters both periods by institution", () => {
     const transactions = [
       { id: "bank-current", description: "Compra", amount: 500, type: "despesa" as const, date: "2026-02-02", categoryId: "food", bankId: "bank-a" },
       { id: "other-bank", description: "Compra", amount: 1000, type: "despesa" as const, date: "2026-02-03", categoryId: "food", bankId: "bank-b" },
+      { id: "card-current", description: "Fatura", amount: 250, type: "despesa" as const, date: "2026-02-04", categoryId: "food", cardId: "card-a" },
     ];
-    const comparison = compareMonthlyPeriods(transactions, "2026-02", "bank-a");
+    const comparison = compareMonthlyPeriods(transactions, "2026-02", { type: "bank", id: "bank-a" });
     expect(comparison.expenseChange).toBeNull();
     expect(comparison.current.expense).toBe(500);
     expect(comparison.previous.expense).toBe(0);
+    expect(reportMonthTotals(transactions, "2026-02", { type: "card", id: "card-a" }).expense).toBe(250);
     expect(() => previousMonthKey("2026-13")).toThrow("Invalid month key: 2026-13");
   });
 });

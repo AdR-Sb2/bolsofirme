@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Trash2, Camera, LockKeyhole, UserRound, Save, PiggyBank, Target } from "lucide-react";
+import { Trash2, Camera, LockKeyhole, UserRound, Save, PiggyBank, Target, Moon, Sun, History } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
   type SavingsGoal,
   type SpendingLimit,
 } from "@/lib/planning";
+import { applyThemePreference, getThemePreference, type ThemePreference } from "@/lib/theme";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
   head: () => ({
@@ -43,12 +44,19 @@ function Config() {
   const [planningReady, setPlanningReady] = useState(false);
   const [planningBusy, setPlanningBusy] = useState(false);
   const [planningError, setPlanningError] = useState(false);
+  const [theme, setTheme] = useState<ThemePreference>("dark");
+  const [activity, setActivity] = useState<{ id: number; summary: string; created_at: string }[]>([]);
+  const [activityReady, setActivityReady] = useState(false);
+  const [activityError, setActivityError] = useState(false);
+  const [deletePhrase, setDeletePhrase] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [limitValue, setLimitValue] = useState("");
   const [goalName, setGoalName] = useState("");
   const [goalTarget, setGoalTarget] = useState("");
   const [contributions, setContributions] = useState<Record<string, string>>({});
   useEffect(() => { void (async () => { const { data: { user } } = await supabase.auth.getUser(); if (!user) return; const { data } = await supabase.from("user_profiles").select("display_name,avatar_url").eq("user_id", user.id).maybeSingle(); setProfileName(data?.display_name || user.user_metadata?.["full_name"] || user.user_metadata?.["name"] || ""); setAvatar(data?.avatar_url || user.user_metadata?.["avatar_url"] || user.user_metadata?.["picture"] || ""); setEmail(user.email || ""); })(); }, []);
+  useEffect(() => setTheme(getThemePreference()), []);
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -76,6 +84,26 @@ function Config() {
         }
       } finally {
         if (active) setPlanningReady(true);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("activity_log")
+          .select("id,summary,created_at")
+          .order("created_at", { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        if (active) setActivity(data ?? []);
+      } catch (error) {
+        console.error("[Activity] Failed to load account activity.", error);
+        if (active) setActivityError(true);
+      } finally {
+        if (active) setActivityReady(true);
       }
     })();
     return () => { active = false; };
@@ -160,6 +188,22 @@ function Config() {
   const csv = () => {
     const lines = [["Data", "Descrição", "Valor", "Tipo", "Categoria"], ...s.txs.map((t) => [t.date, t.description, (t.amount / 100).toFixed(2), t.type, s.categories.find((c) => c.id === t.categoryId)?.name ?? ""])];
     download("bolsofirme.csv", lines.map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv");
+  };
+  const deleteAccount = async () => {
+    if (deletePhrase !== "EXCLUIR") return;
+    setDeleteBusy(true);
+    try {
+      const { error } = await supabase.functions.invoke("delete-account", { method: "POST" });
+      if (error) throw error;
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) console.error("[Account] Deleted account but sign-out returned an error.", signOutError);
+      window.location.assign("/auth");
+    } catch (error) {
+      console.error("[Account] Account deletion failed.", error);
+      toast.error("Não foi possível excluir a conta. Verifique se a função delete-account foi publicada no Supabase.");
+    } finally {
+      setDeleteBusy(false);
+    }
   };
   const persistPlanning = async (limits: SpendingLimit[], goals: SavingsGoal[]) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -440,15 +484,89 @@ function Config() {
       </section>
       <section className="rounded-xl border border-border bg-card p-5">
         <h3 className="mb-2 font-semibold">Privacidade e conexões</h3><p className="mb-3 text-sm text-muted-foreground">Gerencie convites e escolha quais informações financeiras compartilha.</p><Button variant="outline" onClick={()=>window.location.assign("/conexoes")}>Gerenciar conexões e compartilhamento</Button><h3 className="mb-2 mt-5 font-semibold">Preferências</h3>
-        <p className="text-sm text-muted-foreground">Tema: Escuro · Moeda: Real brasileiro (R$)</p>
+        <p className="mb-3 text-sm text-muted-foreground">Escolha a aparência do aplicativo. A preferência fica salva neste dispositivo.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={theme === "light" ? "default" : "outline"}
+            aria-pressed={theme === "light"}
+            onClick={() => {
+              setTheme("light");
+              applyThemePreference("light");
+            }}
+          >
+            <Sun className="mr-2 h-4 w-4" />
+            Claro
+          </Button>
+          <Button
+            variant={theme === "dark" ? "default" : "outline"}
+            aria-pressed={theme === "dark"}
+            onClick={() => {
+              setTheme("dark");
+              applyThemePreference("dark");
+            }}
+          >
+            <Moon className="mr-2 h-4 w-4" />
+            Escuro
+          </Button>
+        </div>
       </section>
       <section className="rounded-xl border border-border bg-card p-5">
         <h3 className="mb-3 font-semibold">Dados</h3>
         <div className="flex gap-2"><Button variant="outline" onClick={() => download("bolsofirme.json", JSON.stringify(s, null, 2), "application/json")}>Exportar JSON</Button><Button variant="outline" onClick={csv}>Exportar CSV</Button></div>
       </section>
       <section className="rounded-xl border border-border bg-card p-5">
+        <div className="mb-3 flex items-center gap-2">
+          <History className="h-5 w-5 text-primary" />
+          <h3 className="font-semibold">Histórico de atividades</h3>
+        </div>
+        {activityError ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            Histórico indisponível. Aplique a migration 20261110000800_investment_history_and_activity.sql no Supabase.
+          </p>
+        ) : !activityReady ? (
+          <div className="space-y-2">
+            <div className="h-4 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+          </div>
+        ) : activity.length === 0 ? (
+          <p className="text-sm text-muted-foreground">As próximas alterações financeiras aparecerão aqui.</p>
+        ) : (
+          <ul className="space-y-2">
+            {activity.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-center gap-2 border-b border-border py-2 last:border-0">
+                <span className="min-w-0 flex-1 text-sm">{item.summary}</span>
+                <time className="text-xs text-muted-foreground" dateTime={item.created_at}>
+                  {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(item.created_at))}
+                </time>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section className="rounded-xl border border-border bg-card p-5">
         <h3 className="mb-2 font-semibold">Conta</h3>
-        <p className="text-sm text-muted-foreground">Sua conta está conectada com o Google. Seus dados financeiros ficam protegidos por usuário.</p>
+        <p className="mb-4 text-sm text-muted-foreground">Excluir a conta remove permanentemente seus dados financeiros e conexões.</p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={deletePhrase}
+            onChange={(event) => setDeletePhrase(event.target.value)}
+            placeholder={'Digite "EXCLUIR" para confirmar'}
+            aria-label="Confirmação para exclusão da conta"
+            autoComplete="off"
+          />
+          <Button
+            variant="destructive"
+            className="shrink-0"
+            disabled={deletePhrase !== "EXCLUIR" || deleteBusy}
+            onClick={() => void deleteAccount()}
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            {deleteBusy ? "Excluindo..." : "Excluir conta"}
+          </Button>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          A exclusão exige que a função segura delete-account esteja publicada no Supabase.
+        </p>
       </section>
     </div>
   );

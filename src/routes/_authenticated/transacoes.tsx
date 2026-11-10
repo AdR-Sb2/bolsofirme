@@ -1,10 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { Filter, Search, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Filter, Search, TrendingDown, TrendingUp, Wallet, Landmark } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MonthPicker, useTxDialog } from "@/components/AppShell";
-import { brl, fmtDate, monthKey, monthTotals, useStore } from "@/lib/store";
+import { Skeleton } from "@/components/ui/skeleton";
+import { supabase } from "@/integrations/supabase/client";
+import { bankBalance, brl, cardUsed, fmtDate, monthKey, monthTotals, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/transacoes")({
@@ -25,13 +28,72 @@ function Transacoes() {
   const s = useStore();
   const open = useTxDialog();
   const [date, setDate] = useState(() => new Date());
-  const [bank, setBank] = useState("");
+  const [institution, setInstitution] = useState("");
   const [cat, setCat] = useState("");
   const [search, setSearch] = useState("");
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
   const [showFilters, setShowFilters] = useState(true);
-  const { list, income, expense, balance } = monthTotals(s.txs, monthKey(date), bank || undefined);
+  const [investmentAssetsCents, setInvestmentAssetsCents] = useState(0);
+  const [assetsLoading, setAssetsLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        if (!user) throw new Error("No authenticated user.");
+        const { data, error } = await supabase
+          .from("investments")
+          .select("user_id,quantity,current_price_cents")
+          .eq("user_id", user.id);
+        if (error) throw error;
+        if (active) {
+          setInvestmentAssetsCents(
+            (data ?? []).reduce(
+              (sum, asset) => sum + asset.quantity * asset.current_price_cents,
+              0,
+            ),
+          );
+        }
+      } catch (error) {
+        console.error("[Transactions] Failed to load investment assets for net worth.", error);
+        if (active) toast.error("Não foi possível calcular o patrimônio total dos investimentos.");
+      } finally {
+        if (active) setAssetsLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+  const monthList = monthTotals(s.txs, monthKey(date)).list;
+  const list = monthList.filter((transaction) => {
+    if (!institution) return true;
+    const [type, id] = institution.split(":", 2);
+    return type === "bank" ? transaction.bankId === id : transaction.cardId === id;
+  });
+  const income = list.filter((transaction) => transaction.type === "receita").reduce((sum, tx) => sum + tx.amount, 0);
+  const expense = list.filter((transaction) => transaction.type === "despesa").reduce((sum, tx) => sum + tx.amount, 0);
+  const balance = income - expense;
+  const today = new Date();
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const isCurrentMonth = monthKey(date) === monthKey(today);
+  const elapsedDays = Math.max(1, today.getDate());
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const actualToDate = isCurrentMonth
+    ? list.filter((transaction) => transaction.date <= todayIso)
+    : [];
+  const expenseToDate = actualToDate
+    .filter((transaction) => transaction.type === "despesa")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const incomeToDate = actualToDate
+    .filter((transaction) => transaction.type === "receita")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const projectedExpense = isCurrentMonth ? (expenseToDate / elapsedDays) * daysInMonth : null;
+  const projectedIncome = isCurrentMonth ? (incomeToDate / elapsedDays) * daysInMonth : null;
+  const netWorth =
+    s.banks.reduce((sum, bank) => sum + bankBalance(s, bank.id), 0) +
+    investmentAssetsCents -
+    s.cards.reduce((sum, card) => sum + cardUsed(s, card.id), 0);
   const query = search.trim().toLocaleLowerCase("pt-BR");
   const minCents = minAmount === "" ? undefined : Math.round(Number(minAmount) * 100);
   const maxCents = maxAmount === "" ? undefined : Math.round(Number(maxAmount) * 100);
@@ -53,6 +115,7 @@ function Transacoes() {
     { label: "Total Entradas", value: income, cls: "text-income", Icon: TrendingUp },
     { label: "Total Saídas", value: expense, cls: "text-expense", Icon: TrendingDown },
     { label: "Saldo Final", value: balance, cls: "text-balance", Icon: Wallet },
+    { label: "Patrimônio total", value: netWorth, cls: "text-balance", Icon: Landmark },
   ];
 
   return (
@@ -61,22 +124,41 @@ function Transacoes() {
         <MonthPicker date={date} onChange={setDate} />
         <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}><Filter className="h-4 w-4" />Filtros</Button>
       </div>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map(({ label, value, cls, Icon }) => (
           <div key={label} className="rounded-xl border border-border bg-card p-5">
             <div className="flex justify-between text-sm font-medium">{label}<Icon className={cn("h-4 w-4", cls)} /></div>
-            <div className={cn("mt-6 text-[28px] font-bold", cls)}>{brl(value)}</div>
+            <div className={cn("mt-6 text-[28px] font-bold", cls)}>
+              {label === "Patrimônio total" && assetsLoading ? <Skeleton className="h-8 w-36" /> : brl(value)}
+            </div>
           </div>
         ))}
       </div>
+      <section className="rounded-xl border border-border bg-card p-4">
+        <div className="mb-1 flex items-center gap-2 font-medium">
+          <TrendingUp className="h-4 w-4 text-primary" />
+          Previsão de fechamento
+        </div>
+        {isCurrentMonth ? (
+          <p className="text-sm text-muted-foreground">
+            Projeção linear: receitas {brl(projectedIncome ?? 0)} · despesas {brl(projectedExpense ?? 0)} até o fim do mês, com base nos lançamentos até hoje.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            A previsão aparece para o mês atual. Selecione {monthKey(today)} para acompanhar o fechamento.
+          </p>
+        )}
+      </section>
       {showFilters && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="relative sm:col-span-2 lg:col-span-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar transação" aria-label="Buscar por descrição, categoria ou instituição" />
           </div>
-          <select className={sel} value={bank} onChange={(e) => setBank(e.target.value)}>
-            <option value="">Selecionar Banco</option>{s.banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          <select className={sel} value={institution} onChange={(e) => setInstitution(e.target.value)}>
+            <option value="">Todas as instituições</option>
+            <optgroup label="Bancos">{s.banks.map((b) => <option key={b.id} value={`bank:${b.id}`}>{b.name}</option>)}</optgroup>
+            <optgroup label="Cartões">{s.cards.map((card) => <option key={card.id} value={`card:${card.id}`}>{card.name}</option>)}</optgroup>
           </select>
           <select className={sel} value={cat} onChange={(e) => setCat(e.target.value)}>
             <option value="">Categoria</option>{s.categories.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
@@ -94,7 +176,7 @@ function Transacoes() {
               <div className="mt-3"><Button size="sm" onClick={() => open(null)}>Adicionar transação</Button></div>
             ) : (
               <div className="mt-3"><Button size="sm" variant="outline" onClick={() => {
-                setBank("");
+                setInstitution("");
                 setCat("");
                 setSearch("");
                 setMinAmount("");

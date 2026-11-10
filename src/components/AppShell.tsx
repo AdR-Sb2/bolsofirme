@@ -14,6 +14,9 @@ import {
   X,
   TrendingUp,
   Users,
+  Search,
+  Landmark,
+  CreditCard as CardIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,7 +31,9 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LogOut, UserRound, Settings2 } from "lucide-react";
 import { TxDialog } from "@/components/TxDialog";
-import type { Tx } from "@/lib/store";
+import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { applyThemePreference, getThemePreference } from "@/lib/theme";
+import { brl, fmtDate, type Tx, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const main = [
@@ -44,10 +49,13 @@ const Ctx = createContext<(tx?: Tx | null) => void>(() => {});
 export const useTxDialog = () => useContext(Ctx);
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const store = useStore();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [collapsed, setCollapsed] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [dlg, setDlg] = useState<{ open: boolean; tx?: Tx | null }>({ open: false });
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [profile, setProfile] = useState<{ name: string; avatar: string; email: string }>({
     name: "",
     avatar: "",
@@ -57,6 +65,19 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [invitePreviews, setInvitePreviews] = useState<
     { id: string; name: string; avatar: string }[]
   >([]);
+  useEffect(() => {
+    applyThemePreference(getThemePreference());
+  }, []);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -195,6 +216,28 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
   const all = [...main, { to: "/configuracoes", label: "Configurações", icon: Settings }];
   const current = all.find((i) => i.to === path)?.label ?? "";
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase("pt-BR");
+  const searchTransactions = normalizedSearch
+    ? store.txs
+        .filter((transaction) => {
+          const category = store.categories.find((item) => item.id === transaction.categoryId)?.name ?? "";
+          const institution = transaction.bankId
+            ? store.banks.find((item) => item.id === transaction.bankId)?.name ?? ""
+            : store.cards.find((item) => item.id === transaction.cardId)?.name ?? "";
+          return `${transaction.description} ${category} ${institution} ${transaction.date}`
+            .toLocaleLowerCase("pt-BR")
+            .includes(normalizedSearch);
+        })
+        .slice(0, 30)
+    : [];
+  const searchBanks = normalizedSearch
+    ? store.banks.filter((bank) => bank.name.toLocaleLowerCase("pt-BR").includes(normalizedSearch))
+    : [];
+  const searchCards = normalizedSearch
+    ? store.cards.filter((card) =>
+        `${card.name} ${card.bank} ${card.brand ?? ""}`.toLocaleLowerCase("pt-BR").includes(normalizedSearch),
+      )
+    : [];
   const NavItem = ({ to, label, icon: Icon }: { to: string; label: string; icon: typeof Home }) => (
     <Link
       to={to as never}
@@ -275,6 +318,19 @@ export function AppShell({ children }: { children: ReactNode }) {
               <h1 className="font-semibold">{current}</h1>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="max-w-40 justify-start text-muted-foreground sm:max-w-56"
+                onClick={() => setSearchOpen(true)}
+                aria-label="Pesquisar em transações, bancos e cartões"
+              >
+                <Search className="h-4 w-4" />
+                <span className="hidden truncate sm:inline">Pesquisar</span>
+                <kbd className="ml-auto hidden rounded border px-1.5 py-0.5 text-[10px] sm:inline">
+                  Ctrl K
+                </kbd>
+              </Button>
               <Button size="sm" onClick={() => setDlg({ open: true, tx: null })}>
                 <PlusCircle className="h-4 w-4" />
                 Nova transação
@@ -381,6 +437,72 @@ export function AppShell({ children }: { children: ReactNode }) {
         tx={dlg.tx}
         onOpenChange={(o) => setDlg((d) => ({ ...d, open: o }))}
       />
+      <CommandDialog open={searchOpen} onOpenChange={setSearchOpen}>
+        <CommandInput
+          placeholder="Buscar transações, bancos e cartões..."
+          value={searchQuery}
+          onValueChange={setSearchQuery}
+        />
+        <CommandList>
+          <CommandEmpty>
+            {normalizedSearch ? "Nenhum resultado encontrado." : "Digite para pesquisar em toda a sua conta."}
+          </CommandEmpty>
+          <CommandGroup heading="Transações">
+            {searchTransactions.map((transaction) => {
+              const category = store.categories.find((item) => item.id === transaction.categoryId)?.name ?? "";
+              const institution = transaction.bankId
+                ? store.banks.find((item) => item.id === transaction.bankId)?.name ?? ""
+                : store.cards.find((item) => item.id === transaction.cardId)?.name ?? "";
+              return (
+                <CommandItem
+                  key={`tx-${transaction.id}`}
+                  value={`transação ${transaction.description} ${category} ${institution} ${transaction.date}`}
+                  onSelect={() => {
+                    setSearchOpen(false);
+                    setDlg({ open: true, tx: transaction });
+                  }}
+                >
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">{transaction.description}</span>
+                  <span className="text-xs text-muted-foreground">{fmtDate(transaction.date)}</span>
+                  <span className="text-xs font-medium">{brl(transaction.amount)}</span>
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+          <CommandGroup heading="Bancos">
+            {searchBanks.map((bank) => (
+              <CommandItem
+                key={`bank-${bank.id}`}
+                value={`banco ${bank.name}`}
+                onSelect={() => {
+                  setSearchOpen(false);
+                  window.location.assign("/bancos");
+                }}
+              >
+                <Landmark className="h-4 w-4 text-muted-foreground" />
+                {bank.name}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+          <CommandGroup heading="Cartões">
+            {searchCards.map((card) => (
+              <CommandItem
+                key={`card-${card.id}`}
+                value={`cartão ${card.name} ${card.bank} ${card.brand ?? ""}`}
+                onSelect={() => {
+                  setSearchOpen(false);
+                  window.location.assign("/cartoes");
+                }}
+              >
+                <CardIcon className="h-4 w-4 text-muted-foreground" />
+                <span>{card.name}</span>
+                <span className="text-xs text-muted-foreground">{card.bank}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
     </Ctx.Provider>
   );
 }

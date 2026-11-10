@@ -197,6 +197,87 @@ export type Database = {
         };
         Relationships: [];
       };
+      investment_dividends: {
+        Row: {
+          amount_cents: number;
+          created_at: string;
+          id: string;
+          investment_id: string;
+          note: string;
+          paid_at: string;
+          user_id: string;
+        };
+        Insert: {
+          amount_cents: number;
+          created_at?: string;
+          id?: string;
+          investment_id: string;
+          note?: string;
+          paid_at?: string;
+          user_id?: string;
+        };
+        Update: {
+          amount_cents?: number;
+          created_at?: string;
+          id?: string;
+          investment_id?: string;
+          note?: string;
+          paid_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      investment_snapshots: {
+        Row: {
+          captured_on: string;
+          created_at: string;
+          id: string;
+          total_value_cents: number;
+          user_id: string;
+        };
+        Insert: {
+          captured_on?: string;
+          created_at?: string;
+          id?: string;
+          total_value_cents: number;
+          user_id: string;
+        };
+        Update: {
+          captured_on?: string;
+          created_at?: string;
+          id?: string;
+          total_value_cents?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      activity_log: {
+        Row: {
+          action: string;
+          created_at: string;
+          entity_type: string;
+          id: number;
+          summary: string;
+          user_id: string;
+        };
+        Insert: {
+          action: string;
+          created_at?: string;
+          entity_type: string;
+          id?: number;
+          summary: string;
+          user_id: string;
+        };
+        Update: {
+          action?: string;
+          created_at?: string;
+          entity_type?: string;
+          id?: number;
+          summary?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       transactions: {
         Row: {
           amount_cents: number;

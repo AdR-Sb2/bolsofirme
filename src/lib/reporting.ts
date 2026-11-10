@@ -1,8 +1,31 @@
-import { monthKey, monthTotals, type Tx } from "@/lib/store";
+import { monthKey, type Tx } from "@/lib/store";
+
+export interface ReportSource {
+  type: "bank" | "card";
+  id: string;
+}
+
+function periodTotals(transactions: Tx[], month: string, source?: ReportSource) {
+  const list = transactions.filter(
+    (transaction) =>
+      transaction.date.startsWith(month) &&
+      (!source ||
+        (source.type === "bank"
+          ? transaction.bankId === source.id
+          : transaction.cardId === source.id)),
+  );
+  const income = list
+    .filter((transaction) => transaction.type === "receita")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const expense = list
+    .filter((transaction) => transaction.type === "despesa")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  return { list, income, expense, balance: income - expense };
+}
 
 export interface PeriodComparison {
-  current: ReturnType<typeof monthTotals>;
-  previous: ReturnType<typeof monthTotals>;
+  current: ReturnType<typeof periodTotals>;
+  previous: ReturnType<typeof periodTotals>;
   incomeChange: number | null;
   expenseChange: number | null;
   balanceChange: number;
@@ -26,11 +49,11 @@ function percentageChange(current: number, previous: number): number | null {
 export function compareMonthlyPeriods(
   transactions: Tx[],
   selectedMonth: string,
-  bankId?: string,
+  source?: ReportSource,
 ): PeriodComparison {
   const previousMonth = previousMonthKey(selectedMonth);
-  const current = monthTotals(transactions, selectedMonth, bankId);
-  const previous = monthTotals(transactions, previousMonth, bankId);
+  const current = periodTotals(transactions, selectedMonth, source);
+  const previous = periodTotals(transactions, previousMonth, source);
   return {
     current,
     previous,
@@ -39,4 +62,12 @@ export function compareMonthlyPeriods(
     balanceChange: current.balance - previous.balance,
     previousMonth,
   };
+}
+
+export function reportMonthTotals(
+  transactions: Tx[],
+  month: string,
+  source?: ReportSource,
+) {
+  return periodTotals(transactions, month, source);
 }

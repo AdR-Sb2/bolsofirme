@@ -19,8 +19,8 @@ import { Download, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { MonthPicker, PageTitle } from "@/components/AppShell";
-import { brl, monthKey, monthTotals, useStore } from "@/lib/store";
-import { compareMonthlyPeriods } from "@/lib/reporting";
+import { brl, monthKey, useStore } from "@/lib/store";
+import { compareMonthlyPeriods, reportMonthTotals } from "@/lib/reporting";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/relatorios")({
@@ -38,7 +38,7 @@ export const Route = createFileRoute("/_authenticated/relatorios")({
 });
 
 const sel = "h-9 rounded-md border border-input bg-card px-3 text-sm";
-type ReportMode = "pizza" | "barras" | "tendencia" | "anual";
+type ReportMode = "pizza" | "barras" | "estabelecimentos" | "tendencia" | "anual";
 
 function percentageLabel(value: number | null): string {
   if (value === null) return "Sem base anterior";
@@ -50,11 +50,15 @@ function Relatorios() {
   const s = useStore();
   const [date, setDate] = useState(() => new Date());
   const [mode, setMode] = useState<ReportMode>("pizza");
-  const [bank, setBank] = useState("");
+  const [source, setSource] = useState("");
   const [active, setActive] = useState<string | null>(null);
   const selectedMonth = monthKey(date);
-  const { list } = monthTotals(s.txs, selectedMonth, bank || undefined);
-  const comparison = compareMonthlyPeriods(s.txs, selectedMonth, bank || undefined);
+  const selectedSource = source ? {
+    type: source.startsWith("bank:") ? "bank" as const : "card" as const,
+    id: source.slice(source.indexOf(":") + 1),
+  } : undefined;
+  const { list } = reportMonthTotals(s.txs, selectedMonth, selectedSource);
+  const comparison = compareMonthlyPeriods(s.txs, selectedMonth, selectedSource);
   const data = useMemo(() => {
     const totals = new Map<string, number>();
     list
@@ -78,11 +82,23 @@ function Relatorios() {
       })
       .sort((a, b) => b.value - a.value);
   }, [list, s.categories]);
+  const merchantData = useMemo(() => {
+    const totals = new Map<string, number>();
+    list
+      .filter((transaction) => transaction.type === "despesa")
+      .forEach((transaction) => {
+        const establishment = transaction.description.trim() || "Sem descrição";
+        totals.set(establishment, (totals.get(establishment) ?? 0) + transaction.amount);
+      });
+    return [...totals]
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [list]);
   const total = data.reduce((sum, item) => sum + item.value, 0);
   const average = data.length ? total / data.length : 0;
   const trend = Array.from({ length: 12 }, (_, index) => {
     const month = new Date(date.getFullYear(), date.getMonth() - 11 + index, 1);
-    const totals = monthTotals(s.txs, monthKey(month), bank || undefined);
+    const totals = reportMonthTotals(s.txs, monthKey(month), selectedSource);
     return {
       mes: month.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }),
       Receitas: totals.income / 100,
@@ -91,7 +107,7 @@ function Relatorios() {
   });
   const annual = Array.from({ length: 12 }, (_, index) => {
     const month = new Date(date.getFullYear(), index, 1);
-    const totals = monthTotals(s.txs, monthKey(month), bank || undefined);
+    const totals = reportMonthTotals(s.txs, monthKey(month), selectedSource);
     return {
       mes: month.toLocaleDateString("pt-BR", { month: "short" }),
       Receitas: totals.income / 100,
@@ -100,6 +116,11 @@ function Relatorios() {
   });
   const annualIncome = annual.reduce((sum, month) => sum + month.Receitas, 0);
   const annualExpense = annual.reduce((sum, month) => sum + month.Despesas, 0);
+  const sourceLabel = selectedSource
+    ? selectedSource.type === "bank"
+      ? s.banks.find((item) => item.id === selectedSource.id)?.name
+      : s.cards.find((item) => item.id === selectedSource.id)?.name
+    : undefined;
   const stats = [
     { label: "Total de despesas", value: brl(total), color: "border-l-expense" },
     { label: "Maior categoria", value: data[0]?.name ?? "—", color: "border-l-orange" },
@@ -112,13 +133,13 @@ function Relatorios() {
       const XLSX = await import("xlsx");
       const yearTransactions = s.txs
         .filter((transaction) => transaction.date.startsWith(String(date.getFullYear())))
-        .filter((transaction) => !bank || transaction.bankId === bank)
+        .filter((transaction) =>
+          !selectedSource ||
+          (selectedSource.type === "bank"
+            ? transaction.bankId === selectedSource.id
+            : transaction.cardId === selectedSource.id),
+        )
         .sort((a, b) => a.date.localeCompare(b.date));
-      const categoryRows = data.map((item) => ({
-        Categoria: item.name,
-        "Despesas (R$)": item.value / 100,
-        Participação: total ? `${((item.value / total) * 100).toFixed(1)}%` : "0%",
-      }));
       const transactionRows = yearTransactions.map((transaction) => ({
         Data: transaction.date,
         Descrição: transaction.description,
@@ -131,6 +152,32 @@ function Relatorios() {
           ? s.banks.find((item) => item.id === transaction.bankId)?.name ?? ""
           : s.cards.find((item) => item.id === transaction.cardId)?.name ?? "",
       }));
+      const annualExpenses = yearTransactions.filter((transaction) => transaction.type === "despesa");
+      const categoryTotals = new Map<string, number>();
+      const merchantTotals = new Map<string, number>();
+      annualExpenses.forEach((transaction) => {
+        categoryTotals.set(
+          transaction.categoryId,
+          (categoryTotals.get(transaction.categoryId) ?? 0) + transaction.amount,
+        );
+        const establishment = transaction.description.trim() || "Sem descrição";
+        merchantTotals.set(establishment, (merchantTotals.get(establishment) ?? 0) + transaction.amount);
+      });
+      const annualExpenseTotal = [...categoryTotals.values()].reduce((sum, amount) => sum + amount, 0);
+      const categoryRows = [...categoryTotals].map(([categoryId, amount]) => ({
+        Categoria:
+          s.categories.find((category) => category.id === categoryId)?.name ?? "Sem categoria",
+        "Despesas (R$)": amount / 100,
+        Participação: annualExpenseTotal
+          ? `${((amount / annualExpenseTotal) * 100).toFixed(1)}%`
+          : "0%",
+      }));
+      const merchantRows = [...merchantTotals]
+        .map(([establishment, amount]) => ({
+          Estabelecimento: establishment,
+          "Despesas (R$)": amount / 100,
+        }))
+        .sort((a, b) => b["Despesas (R$)"] - a["Despesas (R$)"]);
       const workbook = XLSX.utils.book_new();
       const summarySheet = XLSX.utils.json_to_sheet([
         { Indicador: "Ano", Valor: date.getFullYear() },
@@ -146,6 +193,13 @@ function Relatorios() {
         workbook,
         XLSX.utils.json_to_sheet(categoryRows.length ? categoryRows : [{ Categoria: "Sem despesas" }]),
         "Categorias",
+      );
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(
+          merchantRows.length ? merchantRows : [{ Estabelecimento: "Sem despesas" }],
+        ),
+        "Estabelecimentos",
       );
       XLSX.utils.book_append_sheet(
         workbook,
@@ -180,7 +234,7 @@ function Relatorios() {
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <MonthPicker date={date} onChange={setDate} />
         <div className="flex flex-wrap gap-2">
-          {(["pizza", "barras", "tendencia", "anual"] as const).map((item) => (
+          {(["pizza", "barras", "estabelecimentos", "tendencia", "anual"] as const).map((item) => (
             <Button
               key={item}
               size="sm"
@@ -193,6 +247,8 @@ function Relatorios() {
                   ? "Barras"
                   : item === "anual"
                     ? "Visão anual"
+                    : item === "estabelecimentos"
+                      ? "Estabelecimentos"
                     : "Tendência"}
             </Button>
           ))}
@@ -218,7 +274,7 @@ function Relatorios() {
         <h3 className="mb-1 font-semibold">Comparação com o mês anterior</h3>
         <p className="mb-4 text-sm text-muted-foreground">
           {selectedMonth} em relação a {comparison.previousMonth}
-          {bank ? ` · ${s.banks.find((item) => item.id === bank)?.name ?? "Banco selecionado"}` : ""}
+          {sourceLabel ? ` · ${sourceLabel}` : ""}
         </p>
         <div className="grid gap-3 sm:grid-cols-3">
           <ComparisonCard
@@ -247,14 +303,21 @@ function Relatorios() {
       <div className="flex flex-wrap items-center gap-3 print:hidden">
         <select
           className={sel}
-          value={bank}
-          onChange={(event) => setBank(event.target.value)}
+          value={source}
+          onChange={(event) => setSource(event.target.value)}
           aria-label="Filtrar relatórios por instituição"
         >
-          <option value="">Todos os bancos</option>
+          <option value="">Todas as instituições</option>
+          <optgroup label="Bancos">
           {s.banks.map((item) => (
-            <option key={item.id} value={item.id}>{item.name}</option>
+            <option key={item.id} value={`bank:${item.id}`}>{item.name}</option>
           ))}
+          </optgroup>
+          <optgroup label="Cartões">
+            {s.cards.map((item) => (
+              <option key={item.id} value={`card:${item.id}`}>{item.name}</option>
+            ))}
+          </optgroup>
         </select>
         <span className="text-sm text-muted-foreground">Ano selecionado: {date.getFullYear()}</span>
       </div>
@@ -265,6 +328,8 @@ function Relatorios() {
             ? `Resumo anual — ${date.getFullYear()}`
             : mode === "tendencia"
               ? "Tendência — últimos 12 meses"
+              : mode === "estabelecimentos"
+                ? "Despesas por estabelecimento"
               : "Despesas por categoria"}
         </h3>
         {mode === "anual" ? (
@@ -302,6 +367,24 @@ function Relatorios() {
               </LineChart>
             </ResponsiveContainer>
           </div>
+        ) : mode === "estabelecimentos" ? (
+          merchantData.length === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">Sem despesas neste período.</p>
+          ) : (
+            <div style={{ height: Math.max(200, Math.min(merchantData.length, 12) * 44) }}>
+              <ResponsiveContainer>
+                <BarChart data={merchantData.slice(0, 12).map((item) => ({
+                  ...item,
+                  valueInReais: item.value / 100,
+                }))} layout="vertical">
+                  <XAxis type="number" />
+                  <YAxis type="category" dataKey="name" width={130} />
+                  <Tooltip formatter={(value: number) => brl(value * 100)} />
+                  <Bar dataKey="valueInReais" name="Despesas" fill="var(--expense)" radius={4} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )
         ) : data.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Sem despesas neste período.</p>
         ) : mode === "barras" ? (
