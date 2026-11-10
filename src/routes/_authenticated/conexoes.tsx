@@ -353,7 +353,7 @@ function Conexoes() {
                     Conectado
                   </span>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                   <div className="rounded-lg bg-muted/50 p-3">
                     <Wallet className="mb-1 h-4 w-4 text-muted-foreground" />
                     <p className="text-lg font-semibold">{info?.banks == null ? "Privado" : info.banks}</p>
@@ -373,6 +373,11 @@ function Conexoes() {
                     <TrendingUp className="mb-1 h-4 w-4 text-muted-foreground" />
                     <p className="text-sm font-semibold">{info?.expense == null ? "Privado" : money(info.expense)}</p>
                     <p className="text-xs text-muted-foreground">Despesas compartilhadas</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-3">
+                    <TrendingUp className="mb-1 h-4 w-4 text-muted-foreground" />
+                    <p className="text-lg font-semibold">{info?.investments == null ? "Privado" : info.investments}</p>
+                    <p className="text-xs text-muted-foreground">Investimentos</p>
                   </div>
                 </div>
                 <div className="mt-4 border-t pt-3">
