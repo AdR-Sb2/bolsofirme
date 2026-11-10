@@ -1,9 +1,30 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { BarChart3, Building2, CreditCard, Home, Menu, PanelLeft, PlusCircle, Settings, Upload, Wallet, X, TrendingUp, Users } from "lucide-react";
+import {
+  BarChart3,
+  Building2,
+  CreditCard,
+  Home,
+  Menu,
+  PanelLeft,
+  PlusCircle,
+  Settings,
+  Upload,
+  Wallet,
+  X,
+  TrendingUp,
+  Users,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LogOut, UserRound, Settings2 } from "lucide-react";
 import { TxDialog } from "@/components/TxDialog";
@@ -27,63 +48,317 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [dlg, setDlg] = useState<{ open: boolean; tx?: Tx | null }>({ open: false });
-  const [profile, setProfile] = useState<{ name: string; avatar: string; email: string }>({ name: "", avatar: "", email: "" });
+  const [profile, setProfile] = useState<{ name: string; avatar: string; email: string }>({
+    name: "",
+    avatar: "",
+    email: "",
+  });
   const [pendingInvites, setPendingInvites] = useState(0);
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!alive || !user) return;
-      const { data } = await supabase.from("user_profiles").select("display_name,avatar_url").eq("user_id", user.id).maybeSingle();
-      if (alive) setProfile({ name: data?.display_name || user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "Minha conta", avatar: data?.avatar_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || "", email: user.email || "" });
+      const { data } = await supabase
+        .from("user_profiles")
+        .select("display_name,avatar_url")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (alive)
+        setProfile({
+          name:
+            data?.display_name ||
+            user.user_metadata?.full_name ||
+            user.user_metadata?.name ||
+            user.email?.split("@")[0] ||
+            "Minha conta",
+          avatar:
+            data?.avatar_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || "",
+          email: user.email || "",
+        });
     };
     void load();
     window.addEventListener("profile-updated", load);
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => { void load(); });
-    return () => { alive = false; window.removeEventListener("profile-updated", load); subscription.unsubscribe(); };
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      void load();
+    });
+    return () => {
+      alive = false;
+      window.removeEventListener("profile-updated", load);
+      subscription.unsubscribe();
+    };
   }, []);
   useEffect(() => {
     let alive = true;
-    let channel: ReturnType<typeof supabase.channel> | undefined;
     const refreshInvites = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user || !alive) return;
-      const { count, error } = await supabase.from("connection_requests").select("id", { count: "exact", head: true }).eq("recipient_id", user.id).eq("status", "pending");
+      const { count, error } = await supabase
+        .from("connection_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_id", user.id)
+        .eq("status", "pending");
       if (alive && !error) setPendingInvites(count ?? 0);
     };
     void refreshInvites();
-    const onFocus = () => { void refreshInvites(); };
+    const onFocus = () => {
+      void refreshInvites();
+    };
     window.addEventListener("focus", onFocus);
     window.addEventListener("connection-invites-updated", onFocus);
-    channel = supabase.channel("profile-incoming-invites").on("postgres_changes", { event: "*", schema: "public", table: "connection_requests" }, () => { void refreshInvites(); }).subscribe();
-    const poll = window.setInterval(() => { void refreshInvites(); }, 30000);
-    return () => { alive = false; window.removeEventListener("focus", onFocus); window.removeEventListener("connection-invites-updated", onFocus); window.clearInterval(poll); if (channel) void supabase.removeChannel(channel); };
+    const channel = supabase
+      .channel("profile-incoming-invites")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "connection_requests" },
+        () => {
+          void refreshInvites();
+        },
+      )
+      .subscribe();
+    const poll = window.setInterval(() => {
+      void refreshInvites();
+    }, 30000);
+    return () => {
+      alive = false;
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("connection-invites-updated", onFocus);
+      window.clearInterval(poll);
+      void supabase.removeChannel(channel);
+    };
   }, [path]);
-  const initials = profile.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "BF";
-  const signOut = async () => { await supabase.auth.signOut(); window.location.assign("/auth"); };
+  const initials =
+    profile.name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase() || "BF";
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    window.location.assign("/auth");
+  };
   const all = [...main, { to: "/configuracoes", label: "Configurações", icon: Settings }];
   const current = all.find((i) => i.to === path)?.label ?? "";
   const NavItem = ({ to, label, icon: Icon }: { to: string; label: string; icon: typeof Home }) => (
-    <Link to={to as never} onClick={() => setMobile(false)} className={cn("flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-sidebar-accent", path === to && "bg-sidebar-accent font-semibold")}>
-      <Icon className="h-4 w-4 shrink-0" />{!collapsed && <span>{label}</span>}
+    <Link
+      to={to as never}
+      onClick={() => setMobile(false)}
+      className={cn(
+        "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-sidebar-accent",
+        path === to && "bg-sidebar-accent font-semibold",
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      {!collapsed && <span>{label}</span>}
     </Link>
   );
-  const sidebar = <aside className={cn("flex h-full flex-col gap-6 border-r border-sidebar-border bg-sidebar p-3 text-sidebar-foreground", collapsed ? "w-16" : "w-56")}>
-    <div className="flex items-center gap-2 px-1 pt-1"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground"><Wallet className="h-5 w-5" /></div>{!collapsed && <div><div className="font-bold leading-tight">BolsoFirme</div><div className="text-xs text-muted-foreground">Gestão Financeira</div></div>}</div>
-    <nav className="grid gap-1">{!collapsed && <p className="px-2 pb-1 text-xs text-muted-foreground">Principal</p>}{main.map((i) => <NavItem key={i.to} {...i} />)}</nav>
-    <nav className="grid gap-1">{!collapsed && <p className="px-2 pb-1 text-xs text-muted-foreground">Conta</p>}<NavItem to="/configuracoes" label="Configurações" icon={Settings} /></nav>
-  </aside>;
-  return <Ctx.Provider value={(tx) => setDlg({ open: true, tx: tx ?? null })}><div className="flex min-h-screen">
-    <div className="sticky top-0 hidden h-screen md:block">{sidebar}</div>
-    {mobile && <div className="fixed inset-0 z-50 flex bg-background/70 md:hidden" onClick={() => setMobile(false)}><div onClick={(e) => e.stopPropagation()} className="relative">{sidebar}<button className="absolute right-2 top-3" onClick={() => setMobile(false)} aria-label="Fechar menu"><X className="h-5 w-5" /></button></div></div>}
-    <div className="flex min-w-0 flex-1 flex-col"><header className="flex h-14 items-center justify-between border-b border-border px-4"><div className="flex items-center gap-3"><button className="md:hidden" onClick={() => setMobile(true)} aria-label="Abrir menu"><Menu className="h-5 w-5" /></button><button className="hidden md:block" onClick={() => setCollapsed(!collapsed)} aria-label="Recolher menu"><PanelLeft className="h-4 w-4" /></button><h1 className="font-semibold">{current}</h1></div><div className="flex items-center gap-2"><Button size="sm" onClick={() => setDlg({ open: true, tx: null })}><PlusCircle className="h-4 w-4" />Nova transação</Button><DropdownMenu><DropdownMenuTrigger asChild><button aria-label={pendingInvites ? `Abrir perfil. ${pendingInvites} convites pendentes` : "Abrir menu da conta"} className="relative rounded-full outline-none ring-offset-background transition hover:ring-2 hover:ring-primary hover:ring-offset-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"><Avatar className="h-9 w-9 border border-border"><AvatarImage src={profile.avatar || undefined} alt="Foto do perfil" /><AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback></Avatar>{pendingInvites > 0 && <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-background bg-destructive px-1 text-[10px] font-bold leading-none text-destructive-foreground">{pendingInvites > 9 ? "9+" : pendingInvites}</span>}</button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-60"><DropdownMenuLabel className="font-normal"><div className="flex flex-col gap-1"><span className="text-sm font-semibold">{profile.name}</span><span className="text-xs text-muted-foreground">{profile.email}</span></div></DropdownMenuLabel><DropdownMenuSeparator />{pendingInvites > 0 && <DropdownMenuItem onSelect={() => window.location.assign("/conexoes#recebidos")} className="font-semibold text-primary"><Users className="h-4 w-4" />Verificar convite{pendingInvites > 1 ? `s (${pendingInvites})` : ""}</DropdownMenuItem>}{pendingInvites > 0 && <DropdownMenuSeparator />}<DropdownMenuItem onSelect={() => window.location.assign("/configuracoes")}><Settings2 className="h-4 w-4" />Configurações da conta</DropdownMenuItem><DropdownMenuItem onSelect={() => window.location.assign("/configuracoes#perfil")}><UserRound className="h-4 w-4" />Meu perfil e foto</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => void signOut()} className="text-destructive focus:text-destructive"><LogOut className="h-4 w-4" />Sair da conta</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div></header><main className="flex-1 p-4 md:p-6">{children}</main></div>
-  </div><TxDialog open={dlg.open} tx={dlg.tx} onOpenChange={(o) => setDlg((d) => ({ ...d, open: o }))} /></Ctx.Provider>;
+  const sidebar = (
+    <aside
+      className={cn(
+        "flex h-full flex-col gap-6 border-r border-sidebar-border bg-sidebar p-3 text-sidebar-foreground",
+        collapsed ? "w-16" : "w-56",
+      )}
+    >
+      <div className="flex items-center gap-2 px-1 pt-1">
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+          <Wallet className="h-5 w-5" />
+        </div>
+        {!collapsed && (
+          <div>
+            <div className="font-bold leading-tight">BolsoFirme</div>
+            <div className="text-xs text-muted-foreground">Gestão Financeira</div>
+          </div>
+        )}
+      </div>
+      <nav className="grid gap-1">
+        {!collapsed && <p className="px-2 pb-1 text-xs text-muted-foreground">Principal</p>}
+        {main.map((i) => (
+          <NavItem key={i.to} {...i} />
+        ))}
+      </nav>
+      <nav className="grid gap-1">
+        {!collapsed && <p className="px-2 pb-1 text-xs text-muted-foreground">Conta</p>}
+        <NavItem to="/configuracoes" label="Configurações" icon={Settings} />
+      </nav>
+    </aside>
+  );
+  return (
+    <Ctx.Provider value={(tx) => setDlg({ open: true, tx: tx ?? null })}>
+      <div className="flex min-h-screen">
+        <div className="sticky top-0 hidden h-screen md:block">{sidebar}</div>
+        {mobile && (
+          <div
+            className="fixed inset-0 z-50 flex bg-background/70 md:hidden"
+            onClick={() => setMobile(false)}
+          >
+            <div onClick={(e) => e.stopPropagation()} className="relative">
+              {sidebar}
+              <button
+                className="absolute right-2 top-3"
+                onClick={() => setMobile(false)}
+                aria-label="Fechar menu"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex h-14 items-center justify-between border-b border-border px-4">
+            <div className="flex items-center gap-3">
+              <button className="md:hidden" onClick={() => setMobile(true)} aria-label="Abrir menu">
+                <Menu className="h-5 w-5" />
+              </button>
+              <button
+                className="hidden md:block"
+                onClick={() => setCollapsed(!collapsed)}
+                aria-label="Recolher menu"
+              >
+                <PanelLeft className="h-4 w-4" />
+              </button>
+              <h1 className="font-semibold">{current}</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => setDlg({ open: true, tx: null })}>
+                <PlusCircle className="h-4 w-4" />
+                Nova transação
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    aria-label={
+                      pendingInvites
+                        ? `Abrir perfil. ${pendingInvites} convites pendentes`
+                        : "Abrir menu da conta"
+                    }
+                    className="relative rounded-full outline-none ring-offset-background transition hover:ring-2 hover:ring-primary hover:ring-offset-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                  >
+                    <Avatar className="h-9 w-9 border border-border">
+                      <AvatarImage src={profile.avatar || undefined} alt="Foto do perfil" />
+                      <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    {pendingInvites > 0 && (
+                      <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-background bg-destructive px-1 text-[10px] font-bold leading-none text-destructive-foreground">
+                        {pendingInvites > 9 ? "9+" : pendingInvites}
+                      </span>
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60">
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-sm font-semibold">{profile.name}</span>
+                      <span className="text-xs text-muted-foreground">{profile.email}</span>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {pendingInvites > 0 && (
+                    <DropdownMenuItem
+                      onSelect={() => window.location.assign("/conexoes#recebidos")}
+                      className="font-semibold text-primary"
+                    >
+                      <Users className="h-4 w-4" />
+                      Verificar convite{pendingInvites > 1 ? `s (${pendingInvites})` : ""}
+                    </DropdownMenuItem>
+                  )}
+                  {pendingInvites > 0 && <DropdownMenuSeparator />}
+                  <DropdownMenuItem onSelect={() => window.location.assign("/configuracoes")}>
+                    <Settings2 className="h-4 w-4" />
+                    Configurações da conta
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => window.location.assign("/configuracoes#perfil")}
+                  >
+                    <UserRound className="h-4 w-4" />
+                    Meu perfil e foto
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => void signOut()}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Sair da conta
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </header>
+          <main className="flex-1 p-4 md:p-6">{children}</main>
+        </div>
+      </div>
+      <TxDialog
+        open={dlg.open}
+        tx={dlg.tx}
+        onOpenChange={(o) => setDlg((d) => ({ ...d, open: o }))}
+      />
+    </Ctx.Provider>
+  );
 }
-export function MonthPicker({ date, onChange, prefix = "" }: { date: Date; onChange: (d: Date) => void; prefix?: string }) {
+export function MonthPicker({
+  date,
+  onChange,
+  prefix = "",
+}: {
+  date: Date;
+  onChange: (d: Date) => void;
+  prefix?: string;
+}) {
   const shift = (n: number) => onChange(new Date(date.getFullYear(), date.getMonth() + n, 1));
   const label = date.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
-  return <div className="flex items-center gap-2"><Button variant="outline" size="icon" className="h-8 w-8" onClick={() => shift(-1)} aria-label="Mês anterior">‹</Button><span className="text-lg font-bold capitalize">{prefix}{label}</span><Button variant="outline" size="icon" className="h-8 w-8" onClick={() => shift(1)} aria-label="Próximo mês">›</Button></div>;
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-8 w-8"
+        onClick={() => shift(-1)}
+        aria-label="Mês anterior"
+      >
+        ‹
+      </Button>
+      <span className="text-lg font-bold capitalize">
+        {prefix}
+        {label}
+      </span>
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-8 w-8"
+        onClick={() => shift(1)}
+        aria-label="Próximo mês"
+      >
+        ›
+      </Button>
+    </div>
+  );
 }
-export function PageTitle({ title, sub, action }: { title: string; sub: string; action?: ReactNode }) {
-  return <div className="mb-6 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-2xl font-bold">{title}</h2><p className="text-sm text-muted-foreground">{sub}</p></div>{action}</div>;
+export function PageTitle({
+  title,
+  sub,
+  action,
+}: {
+  title: string;
+  sub: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 className="text-2xl font-bold">{title}</h2>
+        <p className="text-sm text-muted-foreground">{sub}</p>
+      </div>
+      {action}
+    </div>
+  );
 }
