@@ -32,7 +32,69 @@ function Config() {
   const [profileBusy, setProfileBusy] = useState(false);
   useEffect(() => { void (async () => { const { data: { user } } = await supabase.auth.getUser(); if (!user) return; const { data } = await supabase.from("user_profiles").select("display_name,avatar_url").eq("user_id", user.id).maybeSingle(); setProfileName(data?.display_name || user.user_metadata?.["full_name"] || user.user_metadata?.["name"] || ""); setAvatar(data?.avatar_url || user.user_metadata?.["avatar_url"] || user.user_metadata?.["picture"] || ""); setEmail(user.email || ""); })(); }, []);
   const saveProfile = async () => { const { data: { user } } = await supabase.auth.getUser(); if (!user) { toast.error("Entre novamente na sua conta."); return; } if (profileName.trim().length < 2) { toast.error("Informe um nome com pelo menos 2 caracteres."); return; } setProfileBusy(true); try { const { error } = await supabase.from("user_profiles").upsert({ user_id: user.id, display_name: profileName.trim(), avatar_url: avatar }); if (error) throw error; const { error: metadataError } = await supabase.auth.updateUser({ data: { full_name: profileName.trim(), name: profileName.trim() } }); if (metadataError) throw metadataError; toast.success("Perfil atualizado."); window.dispatchEvent(new Event("profile-updated")); } catch (e) { console.error(e); toast.error("Não foi possível salvar seu perfil."); } finally { setProfileBusy(false); } };
-  const uploadAvatar = async (file?: File) => { if (!file) return; if (!file.type.startsWith("image/")) { toast.error("Selecione um arquivo de imagem."); return; } if (file.size > 5 * 1024 * 1024) { toast.error("A imagem deve ter no máximo 5 MB."); return; } const { data: { user } } = await supabase.auth.getUser(); if (!user) return; setProfileBusy(true); try { const ext = file.name.split(".").pop()?.toLowerCase() || "jpg"; const path = `${user.id}/avatar-${Date.now()}.${ext}`; const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type }); if (error) throw error; const { data } = supabase.storage.from("avatars").getPublicUrl(path); setAvatar(data.publicUrl); const { error: saveError } = await supabase.from("user_profiles").upsert({ user_id: user.id, display_name: profileName.trim() || user.email?.split("@")[0] || "Usuário", avatar_url: data.publicUrl }); if (saveError) throw saveError; toast.success("Foto de perfil atualizada."); window.dispatchEvent(new Event("profile-updated")); } catch (e) { console.error(e); toast.error("Não foi possível enviar a foto. Verifique o armazenamento do Supabase."); } finally { setProfileBusy(false); } };
+  const uploadAvatar = async (file?: File) => {
+    if (!file) return;
+    const extensions: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+    const extension = extensions[file.type];
+    if (!extension) {
+      toast.error("Selecione uma imagem JPG, PNG ou WebP.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("A imagem deve ter no máximo 5 MB.");
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error("Entre novamente na sua conta.");
+      return;
+    }
+    setProfileBusy(true);
+    const path = `${user.id}/avatar-${crypto.randomUUID()}.${extension}`;
+    try {
+      const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, {
+        contentType: file.type,
+      });
+      if (uploadError) {
+        console.error("[Profile] Failed to upload avatar.", uploadError);
+        const message = uploadError.message.toLowerCase();
+        if (message.includes("bucket not found")) {
+          toast.error("O armazenamento de fotos não está configurado. Aplique a migration 20261110000100_profile_avatars.sql no Supabase.");
+        } else if (message.includes("row-level security") || message.includes("unauthorized")) {
+          toast.error("O Supabase recusou o envio da foto. Verifique as políticas de acesso do bucket avatars.");
+        } else {
+          toast.error(`Não foi possível enviar a foto: ${uploadError.message}`);
+        }
+        return;
+      }
+
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      const { error: saveError } = await supabase.from("user_profiles").upsert({
+        user_id: user.id,
+        display_name: profileName.trim() || user.email?.split("@")[0] || "Usuário",
+        avatar_url: data.publicUrl,
+      });
+      if (saveError) {
+        console.error("[Profile] Avatar uploaded but profile could not be updated.", saveError);
+        const { error: cleanupError } = await supabase.storage.from("avatars").remove([path]);
+        if (cleanupError) console.error("[Profile] Failed to remove unlinked avatar.", cleanupError);
+        toast.error("A foto foi enviada, mas não foi possível salvá-la no perfil.");
+        return;
+      }
+      setAvatar(data.publicUrl);
+      toast.success("Foto de perfil atualizada.");
+      window.dispatchEvent(new Event("profile-updated"));
+    } catch (e) {
+      console.error("[Profile] Unexpected avatar upload error.", e);
+      toast.error("Ocorreu um erro inesperado ao enviar a foto.");
+    } finally {
+      setProfileBusy(false);
+    }
+  };
   const changePassword = async () => { if (newPassword.length < 8) { toast.error("A senha deve ter pelo menos 8 caracteres."); return; } if (newPassword !== confirmNewPassword) { toast.error("As senhas não coincidem."); return; } setProfileBusy(true); try { const { error } = await supabase.auth.updateUser({ password: newPassword }); if (error) throw error; setNewPassword(""); setConfirmNewPassword(""); toast.success("Senha atualizada com sucesso."); } catch (e) { console.error(e); toast.error("Não foi possível alterar a senha."); } finally { setProfileBusy(false); } };
   const update = (id: string, patch: Record<string, string>) => setState((st) => ({ ...st, categories: st.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
   const del = (id: string) => {
