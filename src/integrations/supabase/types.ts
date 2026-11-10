@@ -314,6 +314,20 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      get_connection_summaries: {
+        Args: never;
+        Returns: {
+          connection_user_id: string;
+          banks_count: number | null;
+          transactions_count: number | null;
+          investments_count: number | null;
+          income_cents: number | null;
+          expense_cents: number | null;
+          bank_starting_balance_cents: number | null;
+          investment_value_cents: number | null;
+          monthly_totals: { key: string; income: number; expense: number }[] | null;
+        }[];
+      };
       shared_finance_summary: {
         Args: never;
         Returns: {

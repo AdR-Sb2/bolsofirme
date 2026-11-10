@@ -18,12 +18,16 @@ import { Input } from "@/components/ui/input";
 import { PageTitle } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
 
+type MonthlySummary = { key: string; label: string; income: number; expense: number };
 type Summary = {
-  banks: number;
-  investments: number;
-  bankStartingBalance: number;
-  investmentValue: number;
-  months: { key: string; label: string; income: number; expense: number }[];
+  banks: number | null;
+  transactions: number | null;
+  investments: number | null;
+  income: number | null;
+  expense: number | null;
+  bankStartingBalance: number | null;
+  investmentValue: number | null;
+  months: MonthlySummary[] | null;
 };
 type Profile = { user_id: string; display_name: string; avatar_url: string; created_at?: string };
 type Request = {
@@ -143,78 +147,43 @@ function Conexoes() {
         (incomingPerms.data ?? []).map((permission) => [permission.owner_id, permission]),
       ),
     );
-    const acceptedIds = rows
-      .filter((x) => x.status === "accepted")
-      .map((x) => (x.sender_id === user.id ? x.recipient_id : x.sender_id));
-    const now = new Date();
-    const monthTemplate = Array.from({ length: 6 }, (_, index) => {
-      const month = new Date(now.getFullYear(), now.getMonth() - 5 + index, 1);
-      const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
-      return {
-        key,
-        label: month.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""),
-        income: 0,
-        expense: 0,
-      };
-    });
-    const firstMonth = monthTemplate[0]?.key;
-    const summaries = await Promise.all(
-      acceptedIds.map(async (ownerId) => {
-        const months = monthTemplate.map((month) => ({ ...month }));
-        const sharedWithMe = (incomingPerms.data ?? []).find(
-          (permission) => permission.owner_id === ownerId,
-        );
-        const [banks, transactions, investments] = await Promise.all([
-          sharedWithMe?.share_balances
-            ? supabase.from("banks").select("id,initial_cents").eq("user_id", ownerId)
-            : Promise.resolve({ data: [], error: null }),
-          sharedWithMe?.share_transactions && firstMonth
-            ? supabase
-                .from("transactions")
-                .select("amount_cents,type,date")
-                .eq("user_id", ownerId)
-                .gte("date", `${firstMonth}-01`)
-            : Promise.resolve({ data: [], error: null }),
-          sharedWithMe?.share_investments
-            ? supabase
-                .from("investments")
-                .select("quantity,current_price_cents")
-                .eq("user_id", ownerId)
-            : Promise.resolve({ data: [], error: null }),
-        ]);
-        for (const error of [banks.error, transactions.error, investments.error]) {
-          if (error) {
-            console.error("[Connections] Failed to load shared financial summary.", error);
-            toast.error("Não foi possível carregar alguns dados compartilhados.");
-          }
-        }
-        const monthByKey = new Map(months.map((month) => [month.key, month]));
-        for (const transaction of transactions.data ?? []) {
-          const month = monthByKey.get(transaction.date.slice(0, 7));
-          if (!month) continue;
-          if (transaction.type === "receita") month.income += Number(transaction.amount_cents);
-          if (transaction.type === "despesa") month.expense += Number(transaction.amount_cents);
-        }
-        return [
-          ownerId,
-          {
-            banks: banks.data?.length ?? 0,
-            investments: investments.data?.length ?? 0,
-            bankStartingBalance: (banks.data ?? []).reduce(
-              (sum, bank) => sum + Number(bank.initial_cents),
-              0,
-            ),
-            investmentValue: (investments.data ?? []).reduce(
-              (sum, investment) =>
-                sum + Number(investment.quantity) * Number(investment.current_price_cents),
-              0,
-            ),
-            months,
-          },
-        ] as const;
-      }),
+    // Resumos de outras pessoas são retornados por uma função autenticada
+    // que respeita as permissões concedidas por cada titular.
+    const { data: summaryRows, error: summaryError } = await supabase.rpc(
+      "get_connection_summaries",
     );
-    setShared(Object.fromEntries(summaries));
+    if (summaryError) {
+      console.error("Falha ao carregar resumos compartilhados:", summaryError);
+      setShared({});
+    } else {
+      setShared(
+        Object.fromEntries(
+          (summaryRows ?? []).map((row) => [
+            row.connection_user_id,
+            {
+              banks: row.banks_count == null ? null : Number(row.banks_count),
+              transactions: row.transactions_count == null ? null : Number(row.transactions_count),
+              investments: row.investments_count == null ? null : Number(row.investments_count),
+              income: row.income_cents == null ? null : Number(row.income_cents),
+              expense: row.expense_cents == null ? null : Number(row.expense_cents),
+              bankStartingBalance:
+                row.bank_starting_balance_cents == null
+                  ? null
+                  : Number(row.bank_starting_balance_cents),
+              investmentValue:
+                row.investment_value_cents == null ? null : Number(row.investment_value_cents),
+              months:
+                row.monthly_totals?.map((month) => ({
+                  ...month,
+                  label: new Date(`${month.key}-01T00:00:00`)
+                    .toLocaleDateString("pt-BR", { month: "short" })
+                    .replace(".", ""),
+                })) ?? null,
+            },
+          ]),
+        ),
+      );
+    }
     setLoading(false);
   }, []);
   useEffect(() => {
@@ -396,8 +365,8 @@ function Conexoes() {
             const p = profileById[other];
             const info = shared[other];
             const sharedWithMe = incomingPermissions[other] ?? emptyPermission;
-            const currentMonth = info?.months.at(-1);
-            const previousMonth = info?.months.at(-2);
+            const currentMonth = info?.months?.at(-1);
+            const previousMonth = info?.months?.at(-2);
             const daysInMonth = new Date().getDate();
             const monthLength = new Date(
               new Date().getFullYear(),
@@ -427,11 +396,20 @@ function Conexoes() {
                     Conectado
                   </span>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
                   <div className="rounded-lg bg-muted/50 p-3">
                     <Wallet className="mb-1 h-4 w-4 text-muted-foreground" />
-                    <p className="text-lg font-semibold">{info?.banks ?? "—"}</p>
+                    <p className="text-lg font-semibold">
+                      {info?.banks == null ? "Privado" : info.banks}
+                    </p>
                     <p className="text-xs text-muted-foreground">Contas compartilhadas</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-3">
+                    <ReceiptText className="mb-1 h-4 w-4 text-muted-foreground" />
+                    <p className="text-lg font-semibold">
+                      {info?.transactions == null ? "Privado" : info.transactions}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Transações</p>
                   </div>
                   <div className="rounded-lg bg-muted/50 p-3">
                     <TrendingUp className="mb-1 h-4 w-4 text-muted-foreground" />
@@ -459,6 +437,13 @@ function Conexoes() {
                         : "Não compartilhado"}
                     </p>
                     <p className="text-xs text-muted-foreground">Previsão de despesas</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-3">
+                    <TrendingUp className="mb-1 h-4 w-4 text-muted-foreground" />
+                    <p className="text-lg font-semibold">
+                      {info?.investments == null ? "Privado" : info.investments}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Investimentos</p>
                   </div>
                 </div>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
