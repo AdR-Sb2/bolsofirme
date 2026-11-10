@@ -438,6 +438,7 @@ function SummaryCard({
 
 function PaymentDialog({ transaction, onClose }: { transaction: Tx | null; onClose: () => void }) {
   const store = useStore();
+  const today = todayKey();
   const [bankId, setBankId] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(todayKey);
