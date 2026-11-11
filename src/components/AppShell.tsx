@@ -300,7 +300,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebar = (
     <aside
       className={cn(
-        "flex h-full flex-col gap-6 border-r border-sidebar-border bg-sidebar p-3 text-sidebar-foreground",
+        "flex h-full flex-col gap-6 overflow-y-auto border-r border-sidebar-border bg-sidebar p-3 text-sidebar-foreground",
         collapsed ? "w-16" : "w-56",
       )}
     >
@@ -351,7 +351,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-14 items-center justify-between border-b border-border px-4">
+          <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-border bg-background/85 px-3 backdrop-blur md:px-4">
             <div className="flex items-center gap-3">
               <button className="md:hidden" onClick={() => setMobile(true)} aria-label="Abrir menu">
                 <Menu className="h-5 w-5" />
@@ -363,7 +363,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 <PanelLeft className="h-4 w-4" />
               </button>
-              <h1 className="font-semibold">{current}</h1>
+              <h1 className="truncate font-semibold">{current}</h1>
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -379,9 +379,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                   Ctrl K
                 </kbd>
               </Button>
-              <Button size="sm" onClick={() => setDlg({ open: true, tx: null })}>
+              <Button size="sm" className="hidden md:inline-flex" onClick={() => setDlg({ open: true, tx: null })}>
                 <PlusCircle className="h-4 w-4" />
-                Nova transação
+                <span className="hidden sm:inline">Nova transação</span>
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -477,7 +477,41 @@ export function AppShell({ children }: { children: ReactNode }) {
               </DropdownMenu>
             </div>
           </header>
-          <main className="flex-1 p-4 md:p-6">{children}</main>
+          <main className="mx-auto w-full max-w-7xl flex-1 p-3 pb-24 sm:p-4 sm:pb-24 md:p-6">{children}</main>
+          <nav
+            aria-label="Navegação principal"
+            className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+          >
+            {[main[0], main[1]].map(({ to, label, icon: Icon }) => (
+              <Link key={to} to={to} className={cn("flex flex-col items-center gap-0.5 py-2 text-[11px] text-muted-foreground", path === to && "font-semibold text-primary")}>
+                <Icon className="h-5 w-5" />
+                {label}
+              </Link>
+            ))}
+            <button
+              type="button"
+              onClick={() => setDlg({ open: true, tx: null })}
+              aria-label="Nova transação"
+              className="mx-auto -mt-5 grid h-14 w-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg ring-4 ring-background"
+            >
+              <PlusCircle className="h-6 w-6" />
+            </button>
+            {[main[3]].map(({ to, label, icon: Icon }) => (
+              <Link key={to} to={to} className={cn("flex flex-col items-center gap-0.5 py-2 text-[11px] text-muted-foreground", path === to && "font-semibold text-primary")}>
+                <Icon className="h-5 w-5" />
+                {label}
+              </Link>
+            ))}
+            <button
+              type="button"
+              onClick={() => setMobile(true)}
+              className="relative flex flex-col items-center gap-0.5 py-2 text-[11px] text-muted-foreground"
+            >
+              <Menu className="h-5 w-5" />
+              Mais
+              {overduePayables > 0 && <span className="absolute right-1/4 top-1 h-2 w-2 rounded-full bg-destructive" />}
+            </button>
+          </nav>
         </div>
       </div>
       <TxDialog
