@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { supabase } from "@/integrations/supabase/client";
 import { budgetStatus, getMonthlySpendingByCategory, type SpendingBudget } from "@/lib/planning";
 import {
+  bankBalance,
   brl,
   fmtDate,
   invoiceSummary,
@@ -28,7 +29,7 @@ import {
   monthKey,
   monthLabel,
   monthTotals,
-  savingsAssetsCents,
+  netWorthCents,
   transactionCashDate,
   transactionReferenceMonth,
   useStore,
@@ -151,7 +152,12 @@ function Transacoes() {
     .filter(isCashOutflow)
     .reduce((sum, transaction) => sum + transaction.amount, 0);
   const goalOutgoals = (s.goalMovements ?? [])
-    .filter((movement) => movement.type === "aporte" && movement.date.startsWith(monthKey(date)))
+    .filter((movement) => {
+      if (movement.type !== "aporte" || !movement.date.startsWith(monthKey(date))) return false;
+      if (!institution) return true;
+      const [type, id] = institution.split(":", 2);
+      return type === "bank" ? movement.bankId === id : false;
+    })
     .reduce((sum, movement) => sum + movement.amountCents, 0);
   const todayIso = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
@@ -191,11 +197,8 @@ function Transacoes() {
     .reduce((sum, transaction) => sum + transaction.amount, 0);
   const projectedExpense = isCurrentMonth ? (expenseToDate / elapsedDays) * daysInMonth : null;
   const projectedIncome = isCurrentMonth ? (incomeToDate / elapsedDays) * daysInMonth : null;
-  const filteredGoalMovements = (s.goalMovements ?? []).filter(
-    (movement) => movement.date.startsWith(monthKey(date)),
-  );
-  const netWorth =
-    monthlyTotals.balance + investmentAssetsCents + savingsAssetsCents(filteredGoalMovements);
+  const banksBalance = s.banks.reduce((total, bank) => total + bankBalance(s, bank.id), 0);
+  const netWorth = netWorthCents(s, investmentAssetsCents);
   const payables = s.txs.filter(isPendingPayable);
   const overduePayables = payables.filter((transaction) =>
     transaction.dueDate ? transaction.dueDate < todayIso : false,
@@ -254,15 +257,41 @@ function Transacoes() {
   });
 
   const cards = [
-    { label: "Total Entradas", value: income, cls: "text-income", Icon: TrendingUp },
+    {
+      label: "Saldo das contas",
+      value: banksBalance,
+      cls: "text-balance",
+      Icon: Wallet,
+      help: "Dinheiro que você tem hoje nas contas cadastradas, somando todos os meses. Aportes em metas e pagamentos de fatura já estão descontados aqui. É o número que responde “quanto eu tenho”.",
+    },
+    {
+      label: "Total Entradas",
+      value: income,
+      cls: "text-income",
+      Icon: TrendingUp,
+      help: "Receitas agrupadas pelo mês de referência. O mês pode ser diferente da data em que o dinheiro entrou na conta.",
+    },
     {
       label: "Total Saídas (caixa)",
       value: expense + goalOutgoals,
       cls: "text-expense",
       Icon: TrendingDown,
+      help: "Valores que saíram das contas no mês selecionado, incluindo pagamentos de fatura e aportes em metas. Compras no cartão só entram quando a fatura é paga.",
     },
-    { label: "Saldo Final", value: balance, cls: "text-balance", Icon: Wallet },
-    { label: "Patrimônio total", value: netWorth, cls: "text-balance", Icon: Landmark },
+    {
+      label: "Quanto sobrou no mês",
+      value: balance,
+      cls: "text-balance",
+      Icon: CalendarClock,
+      help: "Resultado do mês selecionado: Total Entradas menos Total Saídas (caixa). Aportes em metas contam como saída de caixa, mas o dinheiro continua seu, guardado na meta. Não inclui o saldo inicial nem o resultado de meses anteriores.",
+    },
+    {
+      label: "Patrimônio total",
+      value: netWorth,
+      cls: "text-balance",
+      Icon: Landmark,
+      help: "Saldo das contas + saldo das metas + investimentos. Como o aporte só move dinheiro da conta para a meta, ele não altera o patrimônio.",
+    },
   ];
 
   return (
@@ -275,9 +304,17 @@ function Transacoes() {
         </Button>
       </div>
       <TooltipProvider>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {cards.map(({ label, value, cls, Icon }) => (
-            <div key={label} className="rounded-xl border border-border bg-card p-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {cards.map(({ label, value, cls, Icon, help }) => (
+            <div
+              key={label}
+              className={cn(
+                "rounded-xl border bg-card p-5",
+                label === "Saldo das contas"
+                  ? "border-2 border-primary bg-primary/5"
+                  : "border-border",
+              )}
+            >
               <div className="flex items-center justify-between text-sm font-medium">
                 <span>{label}</span>
                 <div className="flex items-center gap-2">
@@ -291,11 +328,7 @@ function Transacoes() {
                         <CircleHelp className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent className="max-w-64">
-                      Entradas são agrupadas pelo mês de referência. Saídas entram no mês do
-                      pagamento; compras no cartão aparecem nos gastos por categoria, mas só entram
-                      em Total Saídas quando a fatura é paga.
-                    </TooltipContent>
+                    <TooltipContent className="max-w-64">{help}</TooltipContent>
                   </Tooltip>
                   <Icon className={cn("h-4 w-4", cls)} />
                 </div>

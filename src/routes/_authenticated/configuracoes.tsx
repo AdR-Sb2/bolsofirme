@@ -42,6 +42,7 @@ import { PageTitle } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
 import {
   PALETTE,
+  bankBalance,
   brl,
   fmtDate,
   formatCentsInput,
@@ -205,6 +206,34 @@ function moneyCents(value: string): number {
   const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
   const amount = Number(normalized);
   return Number.isFinite(amount) ? Math.round(amount * 100) : NaN;
+}
+
+function MovementPreview({
+  bankName,
+  goalName,
+  amountCents,
+  bankBalanceCents,
+  goalBalanceCents,
+  type,
+}: {
+  bankName: string;
+  goalName: string;
+  amountCents: number;
+  bankBalanceCents: number;
+  goalBalanceCents: number;
+  type: "aporte" | "resgate";
+}) {
+  const bankAfter = type === "aporte" ? bankBalanceCents - amountCents : bankBalanceCents + amountCents;
+  const goalAfter = type === "aporte" ? goalBalanceCents + amountCents : goalBalanceCents - amountCents;
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+      <p className="mb-1 font-medium">O que vai acontecer</p>
+      <p className="text-muted-foreground">
+        {bankName}: {brl(bankBalanceCents)} → {brl(bankAfter)} · {goalName}: {brl(goalBalanceCents)}{" "}
+        → {brl(goalAfter)}
+      </p>
+    </div>
+  );
 }
 
 function Config() {
@@ -788,6 +817,22 @@ function Config() {
     if (!movementGoal || !movementBank || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
       toast.error("Informe a conta e um valor maior que zero.");
       return;
+    }
+    if (!editingMovement && movementGoal) {
+      const bankName = s.banks.find((bank) => bank.id === movementBank)?.name ?? "conta";
+      if (movementType === "aporte") {
+        const available = bankBalance(s, movementBank);
+        if (amountCents > available) {
+          toast.error(`Você tem ${brl(available)} em ${bankName}.`);
+          return;
+        }
+      } else {
+        const goalBalance = savingsGoalBalanceCents(movementGoal, s.goalMovements ?? []);
+        if (amountCents > goalBalance) {
+          toast.error(`Você tem ${brl(goalBalance)} guardado em ${movementGoal.name}.`);
+          return;
+        }
+      }
     }
     setPlanningBusy(true);
     try {
@@ -1896,6 +1941,16 @@ function Config() {
                 disabled={planningBusy}
               />
             </div>
+            {!editingMovement && movementGoal && Number.isSafeInteger(moneyCents(movementAmount)) && moneyCents(movementAmount) > 0 && (
+              <MovementPreview
+                bankName={s.banks.find((bank) => bank.id === movementBank)?.name ?? ""}
+                goalName={movementGoal.name}
+                amountCents={moneyCents(movementAmount)}
+                bankBalanceCents={movementBank ? bankBalance(s, movementBank) : 0}
+                goalBalanceCents={savingsGoalBalanceCents(movementGoal, s.goalMovements ?? [])}
+                type={movementType}
+              />
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setMovementGoal(null)} disabled={planningBusy}>

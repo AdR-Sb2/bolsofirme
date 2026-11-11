@@ -10,6 +10,7 @@ import {
   invoiceSummary,
   loadUserData,
   monthTotals,
+  netWorthCents,
   resetStore,
   savingsAssetsCents,
   transactionReferenceMonth,
@@ -396,6 +397,47 @@ describe("Personal finance loading", () => {
     expect(bankBalance(state, "bank")).toBe(85_000);
     expect(savingsAssetsCents(goalMovements)).toBe(15_000);
     expect(bankBalance(state, "bank") + savingsAssetsCents(goalMovements)).toBe(100_000);
+  });
+
+  it("computes net worth from bank balances, goals and investments without double counting", () => {
+    const goalMovements = [
+      {
+        id: "contribution",
+        goalId: "goal",
+        type: "aporte" as const,
+        amountCents: 20_000,
+        date: "2026-10-12",
+        bankId: "bank",
+        note: "",
+        createdAt: "2026-10-12T12:00:00Z",
+      },
+      {
+        id: "withdrawal",
+        goalId: "goal",
+        type: "resgate" as const,
+        amountCents: 5_000,
+        date: "2026-11-13",
+        bankId: "bank",
+        note: "",
+        createdAt: "2026-11-13T12:00:00Z",
+      },
+    ];
+    const state = {
+      categories: [],
+      banks: [
+        { id: "bank", name: "Banco", color: "", kind: "Conta Corrente" as const, initial: 100_000 },
+        { id: "other", name: "Outro", color: "", kind: "Conta Corrente" as const, initial: 50_000 },
+      ],
+      cards: [],
+      invoices: [],
+      txs: [],
+      goalMovements,
+    };
+
+    expect(bankBalance(state, "bank")).toBe(85_000);
+    expect(bankBalance(state, "other")).toBe(50_000);
+    expect(savingsAssetsCents(goalMovements)).toBe(15_000);
+    expect(netWorthCents(state, 30_000)).toBe(85_000 + 50_000 + 15_000 + 30_000);
   });
 
   it("subtracts a negative card purchase from the invoice and used limit", () => {

@@ -661,6 +661,16 @@ export function savingsAssetsCents(movements: SavingsGoalMovement[]): number {
     0,
   );
 }
+
+/**
+ * Patrimônio total = saldo das contas + saldo das metas + investimentos.
+ * O aporte é uma transferência (debita a conta e credita a meta), então
+ * ele nunca altera o patrimônio — não há contagem dupla aqui.
+ */
+export function netWorthCents(s: State, investmentsCents: number): number {
+  const banksBalance = s.banks.reduce((total, bank) => total + bankBalance(s, bank.id), 0);
+  return banksBalance + savingsAssetsCents(s.goalMovements ?? []) + investmentsCents;
+}
 /** Limite usado = compras de cartão ainda não pagas. */
 export function cardUsed(s: State, cardId: string) {
   const today = dateToIso(new Date());

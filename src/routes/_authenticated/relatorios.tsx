@@ -19,7 +19,7 @@ import { Download, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { MonthPicker, PageTitle } from "@/components/AppShell";
-import { brl, monthKey, monthLabel, transactionReferenceMonth, useStore } from "@/lib/store";
+import { brl, isPendingPayable, monthKey, monthLabel, transactionReferenceMonth, useStore } from "@/lib/store";
 import { compareMonthlyPeriods, reportMonthTotals } from "@/lib/reporting";
 import { cn } from "@/lib/utils";
 
@@ -139,6 +139,26 @@ function Relatorios() {
     { label: "Categorias ativas", value: String(data.length), color: "border-l-balance" },
     { label: "Média por categoria", value: brl(average), color: "border-l-violet" },
   ];
+  const monthAportesCents = (s.goalMovements ?? [])
+    .filter(
+      (movement) =>
+        movement.type === "aporte" &&
+        movement.date.startsWith(selectedMonth) &&
+        (!selectedSource ||
+          (selectedSource.type === "bank" && movement.bankId === selectedSource.id)),
+    )
+    .reduce((sum, movement) => sum + movement.amountCents, 0);
+  const cashOutflowTotal = comparison.current.expense + monthAportesCents;
+  const invoicePaymentsTotal = list
+    .filter((transaction) => transaction.type === "pagamento_fatura")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const cardPurchasesTotal = list
+    .filter((transaction) => transaction.type === "despesa" && transaction.cardId)
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const pendingPayablesTotal = list
+    .filter((transaction) => isPendingPayable(transaction))
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const conciliationDifference = cashOutflowTotal - total;
 
   const exportExcel = async () => {
     try {
@@ -312,6 +332,60 @@ function Relatorios() {
           </div>
         ))}
       </div>
+
+      <section className="rounded-xl border border-border bg-card p-5">
+        <h3 className="mb-1 font-semibold">Conciliação do mês</h3>
+        <p className="mb-4 text-sm text-muted-foreground">
+          A soma que sai das contas e os gastos por categoria usam regras diferentes. Aqui está a
+          diferença dividida em partes que você pode conferir.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg bg-secondary p-3">
+            <div className="text-xs text-muted-foreground">Saídas de caixa do mês</div>
+            <strong className="text-expense">{brl(cashOutflowTotal)}</strong>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Dinheiro que de fato saiu das contas, incluindo pagamentos de fatura e aportes em
+              metas.
+            </p>
+          </div>
+          <div className="rounded-lg bg-secondary p-3">
+            <div className="text-xs text-muted-foreground">Gastos por categoria</div>
+            <strong className="text-expense">{brl(total)}</strong>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Compras contadas no mês em que aconteceram, mesmo no cartão e ainda não pagas.
+            </p>
+          </div>
+          <div className="rounded-lg bg-secondary p-3">
+            <div className="text-xs text-muted-foreground">Diferença</div>
+            <strong className={conciliationDifference < 0 ? "text-income" : "text-expense"}>
+              {conciliationDifference > 0 ? "+" : ""}
+              {brl(conciliationDifference)}
+            </strong>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Aportes em metas + faturas pagas neste mês − compras no cartão deste mês − contas
+              pendentes.
+            </p>
+          </div>
+        </div>
+        <ul className="mt-4 space-y-1.5 text-sm text-muted-foreground">
+          <li>
+            • Aportes em metas: <strong className="text-foreground">{brl(monthAportesCents)}</strong>{" "}
+            — saem do caixa, mas não são gasto: o dinheiro continua seu, guardado na meta.
+          </li>
+          <li>
+            • Faturas pagas neste mês por compras de meses anteriores:{" "}
+            <strong className="text-foreground">{brl(invoicePaymentsTotal)}</strong>.
+          </li>
+          <li>
+            • Compras no cartão feitas neste mês e ainda não pagas:{" "}
+            <strong className="text-foreground">{brl(cardPurchasesTotal)}</strong>.
+          </li>
+          <li>
+            • Contas a pagar com vencimento neste mês, ainda pendentes:{" "}
+            <strong className="text-foreground">{brl(pendingPayablesTotal)}</strong>.
+          </li>
+        </ul>
+      </section>
 
       <section className="rounded-xl border border-border bg-card p-5">
         <h3 className="mb-1 font-semibold">Comparação com o mês anterior</h3>
