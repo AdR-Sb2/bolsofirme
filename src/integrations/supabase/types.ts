@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_log: {
+        Row: {
+          action: string
+          created_at: string
+          entity_type: string
+          id: number
+          summary: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          entity_type: string
+          id?: never
+          summary: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          entity_type?: string
+          id?: never
+          summary?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       banks: {
         Row: {
           color: string
@@ -93,6 +120,7 @@ export type Database = {
           icon: string
           id: string
           name: string
+          type: string
           user_id: string
         }
         Insert: {
@@ -101,6 +129,7 @@ export type Database = {
           icon?: string
           id?: string
           name: string
+          type?: string
           user_id?: string
         }
         Update: {
@@ -109,6 +138,7 @@ export type Database = {
           icon?: string
           id?: string
           name?: string
+          type?: string
           user_id?: string
         }
         Relationships: []
@@ -158,6 +188,106 @@ export type Database = {
           sender_id?: string
           status?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      credit_card_invoices: {
+        Row: {
+          card_id: string
+          closing_date: string
+          created_at: string
+          due_date: string
+          due_month: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          card_id: string
+          closing_date: string
+          created_at?: string
+          due_date: string
+          due_month: string
+          id?: string
+          user_id?: string
+        }
+        Update: {
+          card_id?: string
+          closing_date?: string
+          created_at?: string
+          due_date?: string
+          due_month?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_invoices_user_card_fkey"
+            columns: ["user_id", "card_id"]
+            isOneToOne: false
+            referencedRelation: "cards"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      investment_dividends: {
+        Row: {
+          amount_cents: number
+          created_at: string
+          id: string
+          investment_id: string
+          note: string
+          paid_at: string
+          user_id: string
+        }
+        Insert: {
+          amount_cents: number
+          created_at?: string
+          id?: string
+          investment_id: string
+          note?: string
+          paid_at?: string
+          user_id?: string
+        }
+        Update: {
+          amount_cents?: number
+          created_at?: string
+          id?: string
+          investment_id?: string
+          note?: string
+          paid_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "investment_dividends_investment_id_fkey"
+            columns: ["investment_id"]
+            isOneToOne: false
+            referencedRelation: "investments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      investment_snapshots: {
+        Row: {
+          captured_on: string
+          created_at: string
+          id: string
+          total_value_cents: number
+          user_id: string
+        }
+        Insert: {
+          captured_on?: string
+          created_at?: string
+          id?: string
+          total_value_cents: number
+          user_id: string
+        }
+        Update: {
+          captured_on?: string
+          created_at?: string
+          id?: string
+          total_value_cents?: number
+          user_id?: string
         }
         Relationships: []
       }
@@ -211,11 +341,13 @@ export type Database = {
           installment_count: number
           installment_group_id: string | null
           installment_number: number
+          invoice_id: string | null
           paid: boolean
           recurrence_count: number
           recurrence_frequency: string | null
           recurrence_group_id: string | null
           recurrence_number: number
+          reference_month: string | null
           type: string
           user_id: string
         }
@@ -232,11 +364,13 @@ export type Database = {
           installment_count?: number
           installment_group_id?: string | null
           installment_number?: number
+          invoice_id?: string | null
           paid?: boolean
           recurrence_count?: number
           recurrence_frequency?: string | null
           recurrence_group_id?: string | null
           recurrence_number?: number
+          reference_month?: string | null
           type: string
           user_id?: string
         }
@@ -253,11 +387,13 @@ export type Database = {
           installment_count?: number
           installment_group_id?: string | null
           installment_number?: number
+          invoice_id?: string | null
           paid?: boolean
           recurrence_count?: number
           recurrence_frequency?: string | null
           recurrence_group_id?: string | null
           recurrence_number?: number
+          reference_month?: string | null
           type?: string
           user_id?: string
         }
@@ -282,6 +418,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categories"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_invoice_id_fkey"
+            columns: ["user_id", "invoice_id"]
+            isOneToOne: false
+            referencedRelation: "credit_card_invoices"
+            referencedColumns: ["user_id", "id"]
           },
         ]
       }
