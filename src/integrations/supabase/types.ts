@@ -200,6 +200,7 @@ export type Database = {
       transactions: {
         Row: {
           amount_cents: number
+          attachment_path: string | null
           bank_id: string | null
           card_id: string | null
           category_id: string | null
@@ -207,12 +208,20 @@ export type Database = {
           date: string
           description: string
           id: string
+          installment_count: number
+          installment_group_id: string | null
+          installment_number: number
           paid: boolean
+          recurrence_count: number
+          recurrence_frequency: string | null
+          recurrence_group_id: string | null
+          recurrence_number: number
           type: string
           user_id: string
         }
         Insert: {
           amount_cents: number
+          attachment_path?: string | null
           bank_id?: string | null
           card_id?: string | null
           category_id?: string | null
@@ -220,12 +229,20 @@ export type Database = {
           date: string
           description: string
           id?: string
+          installment_count?: number
+          installment_group_id?: string | null
+          installment_number?: number
           paid?: boolean
+          recurrence_count?: number
+          recurrence_frequency?: string | null
+          recurrence_group_id?: string | null
+          recurrence_number?: number
           type: string
           user_id?: string
         }
         Update: {
           amount_cents?: number
+          attachment_path?: string | null
           bank_id?: string | null
           card_id?: string | null
           category_id?: string | null
@@ -233,7 +250,14 @@ export type Database = {
           date?: string
           description?: string
           id?: string
+          installment_count?: number
+          installment_group_id?: string | null
+          installment_number?: number
           paid?: boolean
+          recurrence_count?: number
+          recurrence_frequency?: string | null
+          recurrence_group_id?: string | null
+          recurrence_number?: number
           type?: string
           user_id?: string
         }
@@ -282,17 +306,23 @@ export type Database = {
       user_settings: {
         Row: {
           onboarding_complete: boolean
+          savings_goals: Json
           selected_banks: string[]
+          spending_limits: Json
           user_id: string
         }
         Insert: {
           onboarding_complete?: boolean
+          savings_goals?: Json
           selected_banks?: string[]
+          spending_limits?: Json
           user_id?: string
         }
         Update: {
           onboarding_complete?: boolean
+          savings_goals?: Json
           selected_banks?: string[]
+          spending_limits?: Json
           user_id?: string
         }
         Relationships: []
