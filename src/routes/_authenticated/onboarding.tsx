@@ -8,6 +8,7 @@ import {
   Check,
   CheckCircle2,
   CreditCard,
+  PiggyBank,
   Plus,
   ShieldCheck,
   ShoppingBasket,
@@ -21,6 +22,9 @@ import { Input } from "@/components/ui/input";
 import { BANK_CATALOG } from "@/lib/bank-catalog";
 import {
   MINIMUM_DEFAULT_CATEGORIES,
+  bankBalance,
+  brl,
+  formatCurrencyInput,
   setState,
   uid,
   useStore,
@@ -56,6 +60,11 @@ type DraftCard = {
 
 type CategorySuggestion = Omit<Category, "id"> & { key: string; group: string };
 type CustomCategory = Omit<CategorySuggestion, "key" | "group"> & { key: string };
+type DraftGoal = {
+  name: string;
+  target: string;
+  deadline: string;
+};
 type OnboardingDraft = {
   step: number;
   selectedBanks: string[];
@@ -66,13 +75,23 @@ type OnboardingDraft = {
   newCategoryName: string;
   newCategoryIcon: string;
   useDefaultCategories: boolean;
+  bankBalances: Record<string, string>;
+  goal: DraftGoal;
 };
 
 const BRANDS = ["Visa", "Mastercard", "Elo", "American Express", "Hipercard"];
 const FIELD_CLASS =
   "h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15";
-const ONBOARDING_STEPS = ["Bancos", "Categorias", "Cartões", "Finalização"];
+const ONBOARDING_STEPS = ["Bancos e cartões", "Saldo das contas", "Categorias", "Primeira meta", "Finalização"];
 const STORAGE_KEY = "bolsofirme-onboarding-draft";
+const GOAL_EXAMPLE: DraftGoal = { name: "Reserva de emergência", target: "1.000,00", deadline: "" };
+
+function parseMoneyToCents(value: string): number {
+  const raw = value.trim().replace(/\s/g, "");
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? Math.round(amount * 100) : NaN;
+}
 const CATEGORY_COLORS = [
   "#2563eb",
   "#16a34a",
@@ -331,7 +350,15 @@ const CATEGORY_SUGGESTIONS: CategorySuggestion[] = [
   },
 ];
 
-const SUGGESTED_SELECTION = ["despesa:mercado", "despesa:transporte", "receita:salario"];
+const RECOMMENDED_SELECTION = [
+  "despesa:moradia",
+  "despesa:contas-casa",
+  "despesa:mercado",
+  "despesa:transporte",
+  "despesa:saude",
+  "despesa:restaurantes",
+  "receita:salario",
+];
 const ICON_ONLY_CATEGORIES: Omit<Category, "id">[] = [
   { name: "Mercado", icon: "🛒", color: "#16a34a", type: "despesa" },
   { name: "Salário", icon: "💰", color: "#2563eb", type: "receita" },
@@ -356,14 +383,20 @@ function Onboarding() {
   const store = useStore();
   const [initialDraft] = useState(() => readDraft(userId));
   const [step, setStep] = useState(() =>
-    Number.isInteger(initialDraft.step) ? Math.min(4, Math.max(0, initialDraft.step!)) : 0,
+    Number.isInteger(initialDraft.step) ? Math.min(5, Math.max(0, initialDraft.step!)) : 0,
   );
   const [selectedBanks, setSelectedBanks] = useState<string[]>(
     () => initialDraft.selectedBanks ?? [],
   );
   const [cards, setCards] = useState<DraftCard[]>(() => initialDraft.cards ?? []);
   const [selectedCategories, setSelectedCategories] = useState<string[]>(
-    () => initialDraft.selectedCategories ?? SUGGESTED_SELECTION,
+    () => initialDraft.selectedCategories ?? [],
+  );
+  const [bankBalances, setBankBalances] = useState<Record<string, string>>(
+    () => initialDraft.bankBalances ?? {},
+  );
+  const [goal, setGoal] = useState<DraftGoal>(
+    () => initialDraft.goal ?? { name: "", target: "", deadline: "" },
   );
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>(
     () => initialDraft.customCategories ?? [],
@@ -395,7 +428,7 @@ function Onboarding() {
   );
 
   useEffect(() => {
-    if (hasExistingCategories && step === 2) setStep(3);
+    if (hasExistingCategories && step === 3) setStep(4);
   }, [hasExistingCategories, step]);
 
   useEffect(() => {
@@ -412,6 +445,8 @@ function Onboarding() {
           newCategoryName,
           newCategoryIcon,
           useDefaultCategories,
+          bankBalances,
+          goal,
         } satisfies OnboardingDraft),
       );
     } catch (error) {
@@ -419,8 +454,10 @@ function Onboarding() {
     }
   }, [
     activeCategoryType,
+    bankBalances,
     cards,
     customCategories,
+    goal,
     newCategoryIcon,
     newCategoryName,
     selectedBanks,
@@ -446,6 +483,21 @@ function Onboarding() {
     );
   const removeCard = (index: number) =>
     setCards((current) => current.filter((_, cardIndex) => cardIndex !== index));
+
+  const newBankInitialCents = (name: string): number => {
+    const existing = store.banks.find((bank) => bank.name === name);
+    if (existing) return existing.initial;
+    const cents = parseMoneyToCents(bankBalances[name] ?? "");
+    return Number.isFinite(cents) ? cents : 0;
+  };
+  const bankDisplayCents = (name: string): number => {
+    const existing = store.banks.find((bank) => bank.name === name);
+    if (existing) return bankBalance(store, existing.id);
+    return newBankInitialCents(name);
+  };
+  const newBankNames = selectedBanks.filter(
+    (name) => !store.banks.some((bank) => bank.name === name),
+  );
 
   const toggleSuggestion = (key: string) => {
     setUseDefaultCategories(false);
@@ -518,8 +570,9 @@ function Onboarding() {
 
   const continueFromCategories = () => {
     if (selectedCategories.length === 0 && customCategories.length === 0) {
-      setUseDefaultCategories(true);
-      toast.message("Vamos criar algumas categorias padrão para você começar.");
+      setSelectedCategories(RECOMMENDED_SELECTION);
+      setUseDefaultCategories(false);
+      toast.message("Marcamos as sugestões recomendadas — você pode ajustar depois.");
     } else {
       if (categoryCount("despesa") === 0)
         toast.message("Se quiser, inclua ao menos uma categoria de despesa.");
@@ -527,7 +580,60 @@ function Onboarding() {
         toast.message("Se quiser, inclua ao menos uma categoria de receita.");
       setUseDefaultCategories(false);
     }
+    setStep(4);
+  };
+
+  const continueFromInstitutions = () => {
+    if (!selectedBanks.length) {
+      toast.error("Escolha pelo menos um banco para continuar.");
+      return;
+    }
+    if (
+      cards.some(
+        (card) =>
+          !card.bank ||
+          !selectedBanks.includes(card.bank) ||
+          !card.limit ||
+          Number(card.limit) <= 0 ||
+          !card.closing ||
+          Number(card.closing) < 1 ||
+          Number(card.closing) > 31 ||
+          !card.due ||
+          Number(card.due) < 1 ||
+          Number(card.due) > 31,
+      )
+    ) {
+      toast.error("Confira os dados dos cartões. Os dias devem ficar entre 1 e 31.");
+      return;
+    }
+    setStep(2);
+  };
+
+  const continueFromSaldo = () => {
+    const missing = newBankNames.filter(
+      (name) => !Number.isFinite(parseMoneyToCents(bankBalances[name] ?? "")),
+    );
+    if (missing.length) {
+      toast.error(
+        `Digite quanto você tem hoje em ${missing.join(", ")} — pode estimar. Digite 0 se a conta começar vazia.`,
+      );
+      return;
+    }
     setStep(3);
+  };
+
+  const continueFromGoal = () => {
+    const name = goal.name.trim();
+    const cents = parseMoneyToCents(goal.target);
+    if (!name && !goal.target.trim()) {
+      setStep(5);
+      return;
+    }
+    if (!name || !Number.isSafeInteger(cents) || cents <= 0) {
+      toast.error("Preencha o nome da meta e um valor maior que zero — ou escolha “Agora não”.");
+      return;
+    }
+    setStep(5);
   };
 
   const finish = async () => {
@@ -553,7 +659,7 @@ function Onboarding() {
       )
     ) {
       toast.error("Confira os dados dos cartões. Os dias devem ficar entre 1 e 31.");
-      setStep(3);
+      setStep(1);
       return;
     }
 
@@ -587,7 +693,7 @@ function Onboarding() {
             color: catalogBank.color,
             logo: catalogBank.logo,
             kind: "Conta Corrente",
-            initial: store.banks.find((bank) => bank.name === name)?.initial ?? 0,
+            initial: newBankInitialCents(name),
           },
         ];
       });
@@ -671,6 +777,20 @@ function Onboarding() {
         if (error) throw error;
       }
 
+      const goalName = goal.name.trim();
+      const goalTargetCents = parseMoneyToCents(goal.target);
+      if (goalName && Number.isSafeInteger(goalTargetCents) && goalTargetCents > 0) {
+        const { error: goalError } = await supabase.from("savings_goals").insert({
+          id: uid(),
+          user_id: user.id,
+          name: goalName,
+          target_cents: goalTargetCents,
+          deadline: goal.deadline || null,
+          status: "em_andamento",
+        });
+        if (goalError) throw goalError;
+      }
+
       const { error: settingsError } = await supabase.from("user_settings").upsert({
         user_id: user.id,
         onboarding_complete: true,
@@ -708,15 +828,7 @@ function Onboarding() {
     }
   };
 
-  const nextFromBanks = () => {
-    if (!selectedBanks.length) {
-      toast.error("Escolha pelo menos um banco para continuar.");
-      return;
-    }
-    setStep(hasExistingCategories ? 3 : 2);
-  };
-
-  const next = () => setStep((current) => Math.min(4, current + 1));
+  const next = () => setStep((current) => Math.min(5, current + 1));
 
   const changeTabByKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (
@@ -811,25 +923,30 @@ function Onboarding() {
                 Organize seu dinheiro. <span className="text-primary">Conquiste seus planos.</span>
               </h1>
               <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground sm:text-lg">
-                Em poucos passos, vamos preparar seu espaço financeiro. Escolha seus bancos e, se
-                quiser, cadastre categorias e cartões. Você pode ajustar tudo depois.
+                O BolsoFirme reúne suas contas, gastos, metas e investimentos em um só lugar, para
+                você saber quanto tem — e para onde seu dinheiro vai.
+              </p>
+              <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
+                Em cinco passos, preparamos seu painel: seus bancos e cartões, o saldo de hoje de
+                cada conta, suas categorias e, se quiser, sua primeira meta. Tudo pode ser ajustado
+                depois.
               </p>
               <div className="mt-9 grid gap-3 sm:grid-cols-3">
                 {[
                   {
                     icon: Building2,
-                    title: "Seus bancos",
+                    title: "Seus bancos e cartões",
                     desc: "Reúna suas contas em um só lugar.",
                   },
                   {
-                    icon: ShoppingBasket,
-                    title: "Suas categorias",
-                    desc: "Organize ganhos e gastos desde o início.",
+                    icon: Wallet,
+                    title: "Seu saldo de hoje",
+                    desc: "Comece com o valor que você tem agora.",
                   },
                   {
-                    icon: ShieldCheck,
-                    title: "Seus dados",
-                    desc: "Suas informações ficam privadas.",
+                    icon: ShoppingBasket,
+                    title: "Suas categorias e metas",
+                    desc: "Organize gastos e planeje objetivos.",
                   },
                 ].map((item) => (
                   <div key={item.title} className="rounded-2xl border border-border bg-card p-4">
@@ -852,13 +969,14 @@ function Onboarding() {
             <div>
               <div className="mb-6">
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                  <Building2 className="h-3.5 w-3.5" /> Etapa 1 · Bancos
+                  <Building2 className="h-3.5 w-3.5" /> Etapa 1 · Bancos e cartões
                 </div>
                 <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-                  Quais bancos você usa?
+                  Quais bancos e cartões você usa?
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Selecione suas instituições. Não precisa conectar suas senhas.
+                  Selecione suas instituições e, se quiser, cadastre seus cartões. Não precisa
+                  conectar senhas.
                 </p>
               </div>
               <div className="mb-4 flex items-center justify-between">
@@ -906,6 +1024,129 @@ function Onboarding() {
                   Selecionar todos
                 </button>
               </div>
+
+              <div className="mt-10 mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <span className="text-sm font-medium">Cartões de crédito</span>
+                  <p className="text-xs text-muted-foreground">
+                    Opcional — para acompanhar limites e faturas. Dá para cadastrar depois.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" className="rounded-lg" onClick={addCard}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Adicionar cartão
+                </Button>
+              </div>
+              {selectedBanks.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-card/50 px-5 py-8 text-center">
+                  <p className="text-sm font-semibold">Escolha seus bancos acima</p>
+                  <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                    Cada cartão pertence a um dos bancos que você selecionar.
+                  </p>
+                </div>
+              ) : cards.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-card/50 px-5 py-8 text-center">
+                  <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-secondary">
+                    <CreditCard className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <p className="font-semibold">Nenhum cartão por enquanto</p>
+                  <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                    Sem problemas! Você pode cadastrar seus cartões a qualquer momento.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {cards.map((card, index) => (
+                    <div
+                      key={card.id}
+                      className="relative rounded-2xl border border-border bg-card p-4 sm:p-5"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => removeCard(index)}
+                        aria-label={`Remover cartão ${index + 1}`}
+                        className="absolute right-3 top-3 rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                      <div className="mb-4 flex items-center gap-3">
+                        <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                          <CreditCard className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold">Cartão {index + 1}</p>
+                          <p className="text-xs text-muted-foreground">Informações do cartão</p>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+                          Banco
+                          <select
+                            className={FIELD_CLASS}
+                            value={card.bank}
+                            onChange={(event) => updateCard(index, "bank", event.target.value)}
+                          >
+                            <option value="">Selecione o banco</option>
+                            {selectedBanks.map((bank) => (
+                              <option key={bank}>{bank}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+                          Bandeira
+                          <select
+                            className={FIELD_CLASS}
+                            value={card.brand}
+                            onChange={(event) => updateCard(index, "brand", event.target.value)}
+                          >
+                            {BRANDS.map((brand) => (
+                              <option key={brand}>{brand}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+                          Limite (R$)
+                          <Input
+                            className="h-11 rounded-xl"
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            placeholder="Ex.: 5000,00"
+                            value={card.limit}
+                            onChange={(event) => updateCard(index, "limit", event.target.value)}
+                          />
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+                            Fecha dia
+                            <Input
+                              className="h-11 rounded-xl"
+                              type="number"
+                              min="1"
+                              max="31"
+                              placeholder="Dia"
+                              value={card.closing}
+                              onChange={(event) => updateCard(index, "closing", event.target.value)}
+                            />
+                          </label>
+                          <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+                            Vence dia
+                            <Input
+                              className="h-11 rounded-xl"
+                              type="number"
+                              min="1"
+                              max="31"
+                              placeholder="Dia"
+                              value={card.due}
+                              onChange={(event) => updateCard(index, "due", event.target.value)}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="mt-8 flex items-center justify-between gap-3">
                 <Button variant="ghost" onClick={() => setStep(0)}>
                   <ArrowLeft className="mr-2 h-4 w-4" />
@@ -914,7 +1155,7 @@ function Onboarding() {
                 <Button
                   className="h-11 min-w-36 rounded-xl"
                   disabled={!selectedBanks.length}
-                  onClick={nextFromBanks}
+                  onClick={continueFromInstitutions}
                 >
                   Continuar <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
@@ -922,11 +1163,98 @@ function Onboarding() {
             </div>
           )}
 
-          {step === 2 && !hasExistingCategories && (
+          {step === 2 && (
             <div>
               <div className="mb-6">
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                  <ShoppingBasket className="h-3.5 w-3.5" /> Etapa 2 · Categorias
+                  <Wallet className="h-3.5 w-3.5" /> Etapa 2 · Saldo das contas
+                </div>
+                <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                  Quanto você tem hoje em cada conta?
+                </h1>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Esse é o seu ponto de partida. Com ele, o app mostra o saldo real do dia — em
+                  vez de começar do zero e confundir seus números.
+                </p>
+              </div>
+              <div className="grid gap-3">
+                {selectedBanks.map((name) => {
+                  const catalogBank = BANK_CATALOG.find((item) => item.name === name);
+                  const existing = store.banks.find((bank) => bank.name === name);
+                  return (
+                    <div
+                      key={name}
+                      className="rounded-2xl border border-border bg-card p-4 sm:p-5"
+                    >
+                      <div className="mb-3 flex items-center gap-3">
+                        {catalogBank && (
+                          <img
+                            src={catalogBank.logo}
+                            alt=""
+                            aria-hidden="true"
+                            className="h-9 w-9 rounded-lg bg-background object-contain p-1"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{name}</p>
+                          {existing ? (
+                            <p className="text-xs text-muted-foreground">
+                              Conta já configurada — seu saldo atual já está sendo considerado
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              Quanto tem hoje nessa conta?
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {existing ? (
+                        <div className="rounded-xl bg-secondary px-4 py-3 text-right">
+                          <span className="text-lg font-bold">{brl(bankDisplayCents(name))}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center rounded-xl border border-border bg-background pl-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15">
+                          <span className="text-sm text-muted-foreground">R$</span>
+                          <Input
+                            aria-label={`Saldo de hoje em ${name}`}
+                            inputMode="decimal"
+                            placeholder="0,00"
+                            value={bankBalances[name] ?? ""}
+                            onChange={(event) =>
+                              setBankBalances((current) => ({
+                                ...current,
+                                [name]: formatCurrencyInput(event.target.value),
+                              }))
+                            }
+                            className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-4 text-xs text-muted-foreground">
+                Pode estimar: você ajusta o valor depois na página Bancos. Se a conta começa vazia,
+                digite 0.
+              </p>
+              <div className="mt-8 flex items-center justify-between gap-3">
+                <Button variant="ghost" onClick={() => setStep(1)}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Voltar
+                </Button>
+                <Button className="h-11 min-w-36 rounded-xl" onClick={continueFromSaldo}>
+                  Continuar <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && !hasExistingCategories && (
+            <div>
+              <div className="mb-6">
+                <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                  <ShoppingBasket className="h-3.5 w-3.5" /> Etapa 3 · Categorias
                 </div>
                 <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
                   O que faz parte do seu dia a dia?
@@ -1108,7 +1436,7 @@ function Onboarding() {
                 </Button>
               </div>
               <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-                <Button variant="ghost" onClick={() => setStep(1)}>
+                <Button variant="ghost" onClick={() => setStep(2)}>
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Voltar
                 </Button>
@@ -1117,13 +1445,20 @@ function Onboarding() {
                     variant="ghost"
                     onClick={() => {
                       setUseDefaultCategories(true);
-                      setStep(3);
+                      setStep(4);
                     }}
                   >
                     Pular por enquanto
                   </Button>
                   <Button className="h-11 min-w-36 rounded-xl" onClick={continueFromCategories}>
-                    Continuar <ArrowRight className="ml-2 h-4 w-4" />
+                    {selectedCategories.length + customCategories.length === 0
+                      ? "Usar sugestões recomendadas"
+                      : `Continuar com ${selectedCategories.length + customCategories.length} ${
+                          selectedCategories.length + customCategories.length === 1
+                            ? "categoria"
+                            : "categorias"
+                        }`}{" "}
+                    <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </div>
               </div>
@@ -1135,146 +1470,91 @@ function Onboarding() {
             </div>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <div>
               <div className="mb-6">
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                  <CreditCard className="h-3.5 w-3.5" /> Etapa 3 · Cartões
+                  <PiggyBank className="h-3.5 w-3.5" /> Etapa 4 · Primeira meta
                 </div>
-                <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">E seus cartões?</h1>
+                <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                  Quer guardar para algo?
+                </h1>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Cadastre cartões para acompanhar limites e vencimentos. Esta etapa é opcional.
+                  Uma meta ajuda o app a dizer quanto guardar por mês. É opcional — você pode
+                  criar depois.
                 </p>
               </div>
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <span className="text-sm font-medium">Cartões de crédito</span>
-                <Button variant="outline" size="sm" className="rounded-lg" onClick={addCard}>
-                  <Plus className="mr-1 h-4 w-4" />
-                  Adicionar cartão
-                </Button>
-              </div>
-              {cards.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-border bg-card/50 px-5 py-12 text-center">
-                  <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-secondary">
-                    <CreditCard className="h-6 w-6 text-muted-foreground" />
-                  </div>
-                  <p className="font-semibold">Nenhum cartão por enquanto</p>
-                  <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-                    Sem problemas! Você pode cadastrar seus cartões a qualquer momento.
-                  </p>
-                  <Button variant="outline" className="mt-5 rounded-xl" onClick={addCard}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Adicionar meu primeiro cartão
-                  </Button>
-                </div>
-              ) : (
-                <div className="grid gap-3">
-                  {cards.map((card, index) => (
-                    <div
-                      key={card.id}
-                      className="relative rounded-2xl border border-border bg-card p-4 sm:p-5"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => removeCard(index)}
-                        aria-label={`Remover cartão ${index + 1}`}
-                        className="absolute right-3 top-3 rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                      <div className="mb-4 flex items-center gap-3">
-                        <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
-                          <CreditCard className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold">Cartão {index + 1}</p>
-                          <p className="text-xs text-muted-foreground">Informações do cartão</p>
-                        </div>
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                          Banco
-                          <select
-                            className={FIELD_CLASS}
-                            value={card.bank}
-                            onChange={(event) => updateCard(index, "bank", event.target.value)}
-                          >
-                            <option value="">Selecione o banco</option>
-                            {selectedBanks.map((bank) => (
-                              <option key={bank}>{bank}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                          Bandeira
-                          <select
-                            className={FIELD_CLASS}
-                            value={card.brand}
-                            onChange={(event) => updateCard(index, "brand", event.target.value)}
-                          >
-                            {BRANDS.map((brand) => (
-                              <option key={brand}>{brand}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                          Limite (R$)
-                          <Input
-                            className="h-11 rounded-xl"
-                            type="number"
-                            min="0.01"
-                            step="0.01"
-                            placeholder="Ex.: 5000,00"
-                            value={card.limit}
-                            onChange={(event) => updateCard(index, "limit", event.target.value)}
-                          />
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                            Fecha dia
-                            <Input
-                              className="h-11 rounded-xl"
-                              type="number"
-                              min="1"
-                              max="31"
-                              placeholder="Dia"
-                              value={card.closing}
-                              onChange={(event) => updateCard(index, "closing", event.target.value)}
-                            />
-                          </label>
-                          <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                            Vence dia
-                            <Input
-                              className="h-11 rounded-xl"
-                              type="number"
-                              min="1"
-                              max="31"
-                              placeholder="Dia"
-                              value={card.due}
-                              onChange={(event) => updateCard(index, "due", event.target.value)}
-                            />
-                          </label>
-                        </div>
-                      </div>
+              <div className="max-w-xl rounded-2xl border border-border bg-card p-5 sm:p-6">
+                <button
+                  type="button"
+                  onClick={() => setGoal(GOAL_EXAMPLE)}
+                  className="mb-5 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/15"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Usar exemplo: {GOAL_EXAMPLE.name} · {brl(parseMoneyToCents(GOAL_EXAMPLE.target))}
+                </button>
+                <div className="grid gap-4">
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Nome da meta
+                    <Input
+                      className="h-11 rounded-xl"
+                      placeholder="Ex.: Viagem para a praia"
+                      value={goal.name}
+                      maxLength={40}
+                      onChange={(event) => setGoal((g) => ({ ...g, name: event.target.value }))}
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Quanto quer guardar
+                    <div className="flex items-center rounded-xl border border-border bg-background pl-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15">
+                      <span className="text-sm text-muted-foreground">R$</span>
+                      <Input
+                        aria-label="Valor que quer guardar"
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={goal.target}
+                        onChange={(event) =>
+                          setGoal((g) => ({ ...g, target: formatCurrencyInput(event.target.value) }))
+                        }
+                        className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
+                      />
                     </div>
-                  ))}
+                  </label>
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    Prazo (opcional)
+                    <Input
+                      className="h-11 rounded-xl"
+                      type="month"
+                      value={goal.deadline ? goal.deadline.slice(0, 7) : ""}
+                      onChange={(event) =>
+                        setGoal((g) => ({
+                          ...g,
+                          deadline: event.target.value ? `${event.target.value}-01` : "",
+                        }))
+                      }
+                    />
+                  </label>
                 </div>
-              )}
-              {hasExistingCategories && (
-                <p className="mt-4 text-sm text-muted-foreground">
-                  Sua conta já tem categorias; elas foram mantidas.
-                </p>
-              )}
+              </div>
+              <p className="mt-4 max-w-xl text-xs text-muted-foreground">
+                Deixe os campos vazios e escolha “Agora não” se preferir começar sem metas.
+              </p>
               <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-                <Button variant="ghost" onClick={() => setStep(hasExistingCategories ? 1 : 2)}>
+                <Button variant="ghost" onClick={() => setStep(hasExistingCategories ? 2 : 3)}>
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Voltar
                 </Button>
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" onClick={() => setStep(4)}>
-                    Fazer depois
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setGoal({ name: "", target: "", deadline: "" });
+                      setStep(5);
+                    }}
+                  >
+                    Agora não
                   </Button>
-                  <Button className="h-11 min-w-36 rounded-xl" onClick={next}>
+                  <Button className="h-11 min-w-36 rounded-xl" onClick={continueFromGoal}>
                     Continuar <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </div>
@@ -1282,7 +1562,7 @@ function Onboarding() {
             </div>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <div className="py-4 sm:py-8">
               <div className="mb-6 grid h-16 w-16 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-500">
                 <CheckCircle2 className="h-9 w-9" />
@@ -1291,34 +1571,32 @@ function Onboarding() {
                 Tudo pronto
               </p>
               <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-                Sua carteira está quase pronta!
+                Pronto! Seu painel está assim
               </h1>
               <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
-                Confira seu resumo. Ao concluir, você poderá começar a organizar suas finanças.
+                Confira o resumo. Ao concluir, você começa a organizar suas finanças.
               </p>
-              <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-2xl border border-border bg-card p-5">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                    <Building2 className="h-4 w-4 text-primary" />
-                    Bancos selecionados
+                    <Wallet className="h-4 w-4 text-primary" />
+                    Saldo das contas
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedBanks.map((name) => (
-                      <span key={name} className="rounded-lg bg-secondary px-2.5 py-1.5 text-xs">
-                        {name}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    {selectedBanks.length} instituição(ões)
+                  <p className="text-2xl font-bold">
+                    {brl(selectedBanks.reduce((sum, name) => sum + bankDisplayCents(name), 0))}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {selectedBanks.length === 0
+                      ? "Nenhum banco selecionado."
+                      : `${selectedBanks.length} ${selectedBanks.length === 1 ? "conta" : "contas"}`}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-border bg-card p-5">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
                     <ShoppingBasket className="h-4 w-4 text-primary" />
-                    Categorias escolhidas
+                    Categorias
                   </div>
-                  <p className="text-3xl font-bold">
+                  <p className="text-2xl font-bold">
                     {hasExistingCategories ? store.categories.length : chosenNames.length}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -1327,12 +1605,12 @@ function Onboarding() {
                       : `${categoryCount("despesa")} despesas · ${categoryCount("receita")} receitas`}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-border bg-card p-5 sm:col-span-2">
+                <div className="rounded-2xl border border-border bg-card p-5">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
                     <CreditCard className="h-4 w-4 text-primary" />
-                    Cartões cadastrados
+                    Cartões
                   </div>
-                  <p className="text-3xl font-bold">{cards.length}</p>
+                  <p className="text-2xl font-bold">{cards.length}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {cards.length === 0
                       ? "Você poderá adicionar depois."
@@ -1341,7 +1619,38 @@ function Onboarding() {
                         : "Cartões de crédito"}
                   </p>
                 </div>
+                <div className="rounded-2xl border border-border bg-card p-5">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                    <PiggyBank className="h-4 w-4 text-primary" />
+                    Primeira meta
+                  </div>
+                  <p className="truncate text-2xl font-bold">
+                    {goal.name.trim() && Number.isSafeInteger(parseMoneyToCents(goal.target))
+                      ? brl(parseMoneyToCents(goal.target))
+                      : "—"}
+                  </p>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {goal.name.trim()
+                      ? goal.name
+                      : "Nenhuma — dá para criar depois"}
+                  </p>
+                </div>
               </div>
+              {selectedBanks.length > 0 && (
+                <div className="mt-3 rounded-2xl border border-border bg-card p-5">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                    <Building2 className="h-4 w-4 text-primary" />
+                    Bancos
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedBanks.map((name) => (
+                      <span key={name} className="rounded-lg bg-secondary px-2.5 py-1.5 text-xs">
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="mt-5 flex items-start gap-3 rounded-xl bg-primary/5 p-4 text-sm">
                 <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                 <p className="leading-6 text-muted-foreground">
@@ -1350,7 +1659,7 @@ function Onboarding() {
                 </p>
               </div>
               <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-                <Button variant="ghost" onClick={() => setStep(3)}>
+                <Button variant="ghost" onClick={() => setStep(4)}>
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Voltar
                 </Button>
