@@ -23,7 +23,7 @@ function AuthPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { if (data.session) nav({ to: "/transacoes" }); });
+    supabase.auth.getSession().then(({ data }) => { if (data.session) nav({ to: "/inicio" }); });
   }, [nav]);
 
   const submitEmail = async (event: FormEvent<HTMLFormElement>) => {
@@ -46,12 +46,12 @@ function AuthPage() {
           },
         });
         if (error) throw error;
-        if (data.session) nav({ to: "/transacoes" });
+        if (data.session) nav({ to: "/inicio" });
         else toast.success("Cadastro iniciado! Confira seu e-mail para confirmar a conta.");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
         if (error) throw error;
-        nav({ to: "/transacoes" });
+        nav({ to: "/inicio" });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Não foi possível concluir o acesso.";

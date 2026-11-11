@@ -9,7 +9,6 @@ import {
   PanelLeft,
   PlusCircle,
   Settings,
-  Upload,
   Wallet,
   X,
   TrendingUp,
@@ -18,6 +17,10 @@ import {
   Landmark,
   CreditCard as CardIcon,
   CalendarClock,
+  Receipt,
+  Target,
+  Tags,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -45,14 +48,20 @@ import { brl, fmtDate, isPendingPayable, type Tx, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const main = [
-  { to: "/transacoes", label: "Transações", icon: Home },
+  { to: "/inicio", label: "Início", icon: Home },
+  { to: "/transacoes", label: "Transações", icon: Receipt },
   { to: "/a-pagar", label: "A pagar", icon: CalendarClock },
-  { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
-  { to: "/bancos", label: "Bancos", icon: Building2 },
   { to: "/cartoes", label: "Cartões", icon: CreditCard },
+  { to: "/bancos", label: "Bancos", icon: Building2 },
+  { to: "/planejamento", label: "Planejamento", icon: Target },
   { to: "/investimentos", label: "Investimentos", icon: TrendingUp },
-  { to: "/conexoes", label: "Se conectar", icon: Users },
-  { to: "/importar", label: "Importar Excel", icon: Upload },
+  { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { to: "/conexoes", label: "Conexões", icon: Users },
+] as const;
+const accountGroup = [
+  { to: "/categorias", label: "Categorias", icon: Tags },
+  { to: "/atividade", label: "Atividade", icon: History },
+  { to: "/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
 const Ctx = createContext<(tx?: Tx | null) => void>(() => {});
 export const useTxDialog = () => useContext(Ctx);
@@ -235,7 +244,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     window.location.assign("/auth");
   };
-  const all = [...main, { to: "/configuracoes", label: "Configurações", icon: Settings }];
+  const all = [...main, ...accountGroup];
   const current = all.find((i) => i.to === path)?.label ?? "";
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase("pt-BR");
   const searchTransactions = normalizedSearch
@@ -312,9 +321,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           <NavItem key={i.to} {...i} />
         ))}
       </nav>
-      <nav className="grid gap-1">
+      <nav className="mt-auto grid gap-1">
         {!collapsed && <p className="px-2 pb-1 text-xs text-muted-foreground">Conta</p>}
-        <NavItem to="/configuracoes" label="Configurações" icon={Settings} />
+        {accountGroup.map((i) => (
+          <NavItem key={i.to} {...i} />
+        ))}
       </nav>
     </aside>
   );
