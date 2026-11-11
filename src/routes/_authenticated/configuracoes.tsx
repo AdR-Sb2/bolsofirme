@@ -13,6 +13,9 @@ import {
   History,
   Pencil,
   Search,
+  Archive,
+  ArchiveRestore,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -44,6 +47,8 @@ import {
   PALETTE,
   bankBalance,
   brl,
+  categoryIcon,
+  categoryName,
   fmtDate,
   formatCentsInput,
   formatCurrencyInput,
@@ -244,6 +249,8 @@ function Config() {
   const [categoryColor, setCategoryColor] = useState(PALETTE[0] as string);
   const [categorySearch, setCategorySearch] = useState("");
   const [categorySort, setCategorySort] = useState<"name" | "usage">("name");
+  const [categoryTab, setCategoryTab] = useState<"ativas" | "arquivadas">("ativas");
+  const [newCategoryOpen, setNewCategoryOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [editName, setEditName] = useState("");
   const [editIcon, setEditIcon] = useState("🏷️");
@@ -531,6 +538,14 @@ function Config() {
     }));
     toast.success("Categoria excluída. As transações foram mantidas sem categoria.");
   };
+  const archiveCategory = (category: Category) => {
+    update(category.id, { archived: true });
+    toast.success(`“${category.name}” arquivada. As transações foram mantidas.`);
+  };
+  const restoreCategory = (category: Category) => {
+    update(category.id, { archived: false });
+    toast.success(`“${category.name}” está ativa novamente.`);
+  };
   const add = () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -557,6 +572,8 @@ function Config() {
     setIcon("🏷️");
     setCategoryColor(PALETTE[0] as string);
     setNewCategoryType("despesa");
+    setNewCategoryOpen(false);
+    setCategoryTab("ativas");
     toast.success("Categoria criada");
   };
   const openCategoryEditor = (category: Category) => {
@@ -608,7 +625,9 @@ function Config() {
       );
     }
   }
-  const visibleCategories = s.categories
+  const activeCategories = s.categories.filter((category) => !category.archived);
+  const archivedCategories = s.categories.filter((category) => category.archived === true);
+  const visibleCategories = activeCategories
     .filter((category) =>
       category.name
         .toLocaleLowerCase("pt-BR")
@@ -620,6 +639,17 @@ function Config() {
         : (categoryUsage.get(b.id) ?? 0) - (categoryUsage.get(a.id) ?? 0) ||
           a.name.localeCompare(b.name, "pt-BR"),
     );
+  const groupedActiveCategories: { title: string; type: TxType; items: Category[] }[] = [
+    { title: "Despesas", type: "despesa", items: visibleCategories.filter((c) => c.type === "despesa") },
+    { title: "Receitas", type: "receita", items: visibleCategories.filter((c) => c.type === "receita") },
+  ];
+  const visibleArchivedCategories = archivedCategories
+    .filter((category) =>
+      category.name
+        .toLocaleLowerCase("pt-BR")
+        .includes(categorySearch.trim().toLocaleLowerCase("pt-BR")),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   const csv = () => {
     const lines = [
       ["Data", "Descrição", "Valor", "Tipo", "Categoria"],
@@ -1113,54 +1143,53 @@ function Config() {
         </Button>
       </section>
       <section className="rounded-xl border border-border bg-card p-5">
-        <div className="mb-4">
-          <h3 className="font-semibold">Categorias</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Organize seus lançamentos com ícones e cores fáceis de reconhecer.
-          </p>
-        </div>
-        <div className="mb-5 grid gap-3 rounded-lg border border-border bg-background/40 p-3">
-          <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end">
-            <div>
-              <span className="mb-1 block text-sm font-medium">Ícone</span>
-              <EmojiPicker value={icon} onChange={setIcon} label="Ícone da nova categoria" />
-            </div>
-            <div>
-              <label htmlFor="new-category-type" className="mb-1 block text-sm font-medium">
-                Tipo
-              </label>
-              <select
-                id="new-category-type"
-                className="mb-2 h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
-                value={newCategoryType}
-                onChange={(event) => setNewCategoryType(event.target.value as TxType)}
-              >
-                <option value="despesa">Despesa</option>
-                <option value="receita">Receita</option>
-              </select>
-              <label htmlFor="new-category-name" className="mb-1 block text-sm font-medium">
-                Nome da categoria
-              </label>
-              <Input
-                id="new-category-name"
-                value={name}
-                maxLength={40}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Ex.: Mercado"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") add();
-                }}
-              />
-            </div>
-            <Button onClick={add} disabled={!name.trim()}>
-              Adicionar categoria
-            </Button>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">Categorias</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {activeCategories.length}{" "}
+              {activeCategories.length === 1 ? "categoria ativa" : "categorias ativas"} ·{" "}
+              {archivedCategories.length}{" "}
+              {archivedCategories.length === 1 ? "arquivada" : "arquivadas"}
+            </p>
           </div>
-          <ColorPalette
-            value={categoryColor}
-            onChange={setCategoryColor}
-            label="Cor da nova categoria"
-          />
+          <Button onClick={() => setNewCategoryOpen(true)}>
+            <Plus aria-hidden="true" className="mr-2 h-4 w-4" />
+            Nova categoria
+          </Button>
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg bg-secondary p-1">
+            <button
+              type="button"
+              onClick={() => setCategoryTab("ativas")}
+              aria-pressed={categoryTab === "ativas"}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                categoryTab === "ativas"
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Ativas
+            </button>
+            <button
+              type="button"
+              onClick={() => setCategoryTab("arquivadas")}
+              aria-pressed={categoryTab === "arquivadas"}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                categoryTab === "arquivadas"
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Arquivadas
+              {archivedCategories.length > 0 && (
+                <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
+                  {archivedCategories.length}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
         <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
           <div className="relative">
@@ -1176,35 +1205,108 @@ function Config() {
               placeholder="Buscar categoria"
             />
           </div>
-          <div>
-            <label htmlFor="category-sort" className="sr-only">
-              Ordenar categorias
-            </label>
-            <select
-              id="category-sort"
-              className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm sm:w-auto"
-              value={categorySort}
-              onChange={(event) => setCategorySort(event.target.value as "name" | "usage")}
-            >
-              <option value="name">Ordem alfabética</option>
-              <option value="usage">Mais transações</option>
-            </select>
-          </div>
+          {categoryTab === "ativas" && (
+            <div>
+              <label htmlFor="category-sort" className="sr-only">
+                Ordenar categorias
+              </label>
+              <select
+                id="category-sort"
+                className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm sm:w-auto"
+                value={categorySort}
+                onChange={(event) => setCategorySort(event.target.value as "name" | "usage")}
+              >
+                <option value="name">Ordem alfabética</option>
+                <option value="usage">Mais transações</option>
+              </select>
+            </div>
+          )}
         </div>
-        <div className="grid gap-2">
-          {visibleCategories.length === 0 ? (
+        {categoryTab === "ativas" ? (
+          activeCategories.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
-              {s.categories.length === 0
-                ? "Nenhuma categoria cadastrada."
-                : "Nenhuma categoria encontrada."}
+              Nenhuma categoria ativa. Crie uma com “Nova categoria” ou restaure algo da aba
+              Arquivadas.
+            </p>
+          ) : visibleCategories.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+              Nenhuma categoria encontrada.
             </p>
           ) : (
-            visibleCategories.map((category) => {
+            groupedActiveCategories.map(
+              (group) =>
+                group.items.length > 0 && (
+                  <div key={group.type} className="mb-4 last:mb-0">
+                    <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {group.title}
+                    </h4>
+                    <div className="grid gap-2">
+                      {group.items.map((category) => {
+                        const count = categoryUsage.get(category.id) ?? 0;
+                        return (
+                          <div
+                            key={category.id}
+                            className="flex min-w-0 items-center gap-3 rounded-lg border border-border px-3 py-2"
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="h-3 w-3 shrink-0 rounded-full"
+                              style={{ backgroundColor: category.color }}
+                            />
+                            <span aria-hidden="true" className="text-lg">
+                              {category.icon}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate font-medium">
+                              {category.name}
+                            </span>
+                            <Badge variant="secondary" className="hidden shrink-0 sm:inline-flex">
+                              {count} {count === 1 ? "transação" : "transações"}
+                            </Badge>
+                            <span className="sr-only">
+                              {count} {count === 1 ? "transação" : "transações"}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              aria-label={`Editar categoria ${category.name}`}
+                              onClick={() => openCategoryEditor(category)}
+                            >
+                              <Pencil aria-hidden="true" className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Arquivar categoria ${category.name}`}
+                              title="Arquivar mantém o histórico das transações"
+                              onClick={() => archiveCategory(category)}
+                            >
+                              <Archive aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ),
+            )
+          )
+        ) : visibleArchivedCategories.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+            {archivedCategories.length === 0
+              ? "Nenhuma categoria arquivada. Arquivar guarda o histórico sem deixar seus lançamentos sem categoria."
+              : "Nenhuma categoria arquivada encontrada."}
+          </p>
+        ) : (
+          <div className="grid gap-2">
+            {visibleArchivedCategories.map((category) => {
               const count = categoryUsage.get(category.id) ?? 0;
+              const hasBudget = spendingBudgets.some(
+                (budget) => budget.categoryId === category.id,
+              );
               return (
                 <div
                   key={category.id}
-                  className="flex min-w-0 items-center gap-3 rounded-lg border border-border px-3 py-2"
+                  className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2"
                 >
                   <span
                     aria-hidden="true"
@@ -1214,10 +1316,9 @@ function Config() {
                   <span aria-hidden="true" className="text-lg">
                     {category.icon}
                   </span>
-                  <span className="min-w-0 flex-1 truncate font-medium">{category.name}</span>
-                  <Badge variant="outline" className="shrink-0">
-                    {category.type === "receita" ? "Receita" : "Despesa"}
-                  </Badge>
+                  <span className="min-w-0 flex-1 truncate font-medium text-muted-foreground">
+                    {category.name}
+                  </span>
                   <Badge variant="secondary" className="hidden shrink-0 sm:inline-flex">
                     {count} {count === 1 ? "transação" : "transações"}
                   </Badge>
@@ -1226,25 +1327,33 @@ function Config() {
                   </span>
                   <Button
                     variant="outline"
-                    size="icon"
-                    aria-label={`Editar categoria ${category.name}`}
-                    onClick={() => openCategoryEditor(category)}
+                    size="sm"
+                    onClick={() => restoreCategory(category)}
                   >
-                    <Pencil aria-hidden="true" className="h-4 w-4" />
+                    <ArchiveRestore aria-hidden="true" className="mr-1.5 h-4 w-4" />
+                    Restaurar
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label={`Excluir categoria ${category.name}`}
+                    aria-label={`Excluir definitivamente a categoria ${category.name}`}
+                    title={
+                      count > 0
+                        ? "Só é possível excluir categorias sem transações. Arquivada, o histórico continua intacto."
+                        : hasBudget
+                          ? "Remova os limites mensais dessa categoria antes de excluí-la."
+                          : "Excluir definitivamente"
+                    }
+                    disabled={count > 0 || hasBudget}
                     onClick={() => setDeletingCategory(category)}
                   >
                     <Trash2 aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
                   </Button>
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
       </section>
       <Dialog
         open={Boolean(editingCategory)}
@@ -1301,6 +1410,64 @@ function Config() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={newCategoryOpen} onOpenChange={setNewCategoryOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nova categoria</DialogTitle>
+            <DialogDescription>
+              Dê um nome, um ícone e uma cor fáceis de reconhecer nos seus lançamentos.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div>
+              <label htmlFor="new-category-name" className="mb-1 block text-sm font-medium">
+                Nome da categoria
+              </label>
+              <Input
+                id="new-category-name"
+                value={name}
+                maxLength={40}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Ex.: Mercado"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") add();
+                }}
+              />
+            </div>
+            <div>
+              <label htmlFor="new-category-type" className="mb-1 block text-sm font-medium">
+                Tipo
+              </label>
+              <select
+                id="new-category-type"
+                className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
+                value={newCategoryType}
+                onChange={(event) => setNewCategoryType(event.target.value as TxType)}
+              >
+                <option value="despesa">Despesa</option>
+                <option value="receita">Receita</option>
+              </select>
+            </div>
+            <div>
+              <span className="mb-1 block text-sm font-medium">Ícone</span>
+              <EmojiPicker value={icon} onChange={setIcon} label="Ícone da nova categoria" />
+            </div>
+            <ColorPalette
+              value={categoryColor}
+              onChange={setCategoryColor}
+              label="Cor da nova categoria"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewCategoryOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={add} disabled={!name.trim()}>
+              Adicionar categoria
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         open={Boolean(deletingCategory)}
         onOpenChange={(open) => {
@@ -1316,9 +1483,12 @@ function Config() {
                   const count = categoryUsage.get(deletingCategory.id) ?? 0;
                   return (
                     <>
-                      A categoria “{deletingCategory.name}” está vinculada a {count}{" "}
-                      {count === 1 ? "transação" : "transações"}. Essas transações serão mantidas,
-                      mas ficarão sem categoria. Esta ação não pode ser desfeita.
+                      A categoria “{deletingCategory.name}” será excluída permanentemente.
+                      {count > 0
+                        ? ` Ela está vinculada a ${count} ${
+                            count === 1 ? "transação" : "transações"
+                          }. Arquivar é mais seguro: o histórico continua intacto.`
+                        : " Como não há transações vinculadas, nada mais será afetado. Esta ação não pode ser desfeita."}
                       {spendingBudgets.some(
                         (budget) => budget.categoryId === deletingCategory.id,
                       ) && " Remova os limites mensais dessa categoria antes de excluí-la."}
@@ -1414,11 +1584,18 @@ function Config() {
                       className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm"
                       value={selectedCategory}
                       onChange={(event) => setSelectedCategory(event.target.value)}
-                      disabled={planningBusy || s.categories.length === 0}
+                      disabled={
+                        planningBusy ||
+                        activeCategories.filter(
+                          (category) => category.type === "despesa" && !category.archived,
+                        ).length === 0
+                      }
                     >
                       <option value="">Selecionar categoria</option>
-                      {s.categories
-                        .filter((category) => category.type === "despesa")
+                      {activeCategories
+                        .filter(
+                          (category) => category.type === "despesa" && !category.archived,
+                        )
                         .map((category) => (
                           <option key={category.id} value={category.id}>
                             {category.icon} {category.name}
@@ -1474,7 +1651,8 @@ function Config() {
                       <div key={budget.id} className="rounded-lg border border-border p-3">
                         <div className="mb-2 flex items-center gap-2">
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                            {budget.category?.icon} {budget.category?.name}
+                            {categoryIcon(budget.category)}{" "}
+                            {budget.category ? categoryName(budget.category) : "Sem categoria"}
                           </span>
                           <span
                             className={`text-xs font-medium ${

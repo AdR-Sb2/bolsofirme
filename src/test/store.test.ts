@@ -7,6 +7,8 @@ import {
   cardInvoiceDates,
   cardInvoiceKey,
   cardUsed,
+  categoryIcon,
+  categoryName,
   invoiceSummary,
   loadUserData,
   monthTotals,
@@ -37,7 +39,17 @@ describe("Personal finance loading", () => {
             error: null,
             data:
               table === "categories"
-                ? [{ id: "category", name: "Salário", icon: "💰", color: "", type: "receita" }]
+                ? [
+                    { id: "category", name: "Salário", icon: "💰", color: "", type: "receita" },
+                    {
+                      id: "old",
+                      name: "Antiga",
+                      icon: "📦",
+                      color: "",
+                      type: "despesa",
+                      archived: true,
+                    },
+                  ]
                 : [],
           };
           return {
@@ -61,8 +73,20 @@ describe("Personal finance loading", () => {
     ]);
     const { result } = renderHook(() => useStore());
     expect(result.current.categories).toEqual([
-      { id: "category", name: "Salário", icon: "💰", color: "", type: "receita" },
+      { id: "category", name: "Salário", icon: "💰", color: "", type: "receita", archived: false },
+      { id: "old", name: "Antiga", icon: "📦", color: "", type: "despesa", archived: true },
     ]);
+  });
+
+  it("renders a safe icon and name even when the category is missing or broken", () => {
+    expect(categoryIcon(undefined)).toBe("🏷️");
+    expect(
+      categoryIcon({ id: "x", name: "X", icon: "", color: "", type: "despesa" }),
+    ).toBe("🏷️");
+    expect(categoryName(undefined)).toBe("Sem categoria");
+    expect(
+      categoryName({ id: "x", name: "", icon: "🏷️", color: "", type: "despesa" }),
+    ).toBe("Sem categoria");
   });
 
   describe("Credit card invoice cycles", () => {

@@ -10,6 +10,18 @@ export interface Category {
   icon: string;
   color: string;
   type: TxType;
+  /** Arquivada sai dos seletores de novas transações, mas mantém o histórico. */
+  archived?: boolean;
+}
+
+/** Ícone seguro para renderizar: nunca mostra vazio ou quebrado. */
+export function categoryIcon(category: Category | undefined): string {
+  return category?.icon || "🏷️";
+}
+
+/** Nome seguro para renderizar quando a categoria não existe mais. */
+export function categoryName(category: Category | undefined): string {
+  return category?.name || "Sem categoria";
 }
 export interface Bank {
   id: string;
@@ -147,6 +159,7 @@ const toRow = {
     icon: c.icon,
     color: c.color,
     type: c.type,
+    archived: c.archived ?? false,
   }),
   banks: (b: Bank, u: string) => ({
     id: b.id,
@@ -242,6 +255,7 @@ export async function loadUserData(userId: string, force = false) {
       icon: r.icon,
       color: r.color,
       type: r.type === "receita" ? "receita" : "despesa",
+      archived: r.archived ?? false,
     })),
     banks: (b.data ?? []).map((r) => ({
       id: r.id,

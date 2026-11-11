@@ -120,6 +120,7 @@ export type Database = {
       };
       categories: {
         Row: {
+          archived: boolean;
           color: string;
           created_at: string;
           icon: string;
@@ -129,6 +130,7 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          archived?: boolean;
           color?: string;
           created_at?: string;
           icon?: string;
@@ -138,6 +140,7 @@ export type Database = {
           user_id?: string;
         };
         Update: {
+          archived?: boolean;
           color?: string;
           created_at?: string;
           icon?: string;

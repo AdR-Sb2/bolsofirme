@@ -19,7 +19,16 @@ import { Download, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { MonthPicker, PageTitle } from "@/components/AppShell";
-import { brl, isPendingPayable, monthKey, monthLabel, transactionReferenceMonth, useStore } from "@/lib/store";
+import {
+  brl,
+  categoryIcon,
+  categoryName,
+  isPendingPayable,
+  monthKey,
+  monthLabel,
+  transactionReferenceMonth,
+  useStore,
+} from "@/lib/store";
 import { compareMonthlyPeriods, reportMonthTotals } from "@/lib/reporting";
 import { cn } from "@/lib/utils";
 
@@ -76,8 +85,8 @@ function Relatorios() {
         const category = s.categories.find((item) => item.id === id);
         return {
           id,
-          name: category?.name ?? "Sem categoria",
-          icon: category?.icon ?? "",
+          name: categoryName(category),
+          icon: categoryIcon(category),
           color: category?.color ?? "#888",
           value,
         };
@@ -198,9 +207,9 @@ function Relatorios() {
               ? "Pagamento de fatura"
               : "Despesa",
         "Valor (R$)": transaction.amount / 100,
-        Categoria:
-          s.categories.find((category) => category.id === transaction.categoryId)?.name ??
-          "Sem categoria",
+        Categoria: categoryName(
+          s.categories.find((category) => category.id === transaction.categoryId),
+        ),
         Instituição: transaction.bankId
           ? (s.banks.find((item) => item.id === transaction.bankId)?.name ?? "")
           : (s.cards.find((item) => item.id === transaction.cardId)?.name ?? ""),
@@ -227,7 +236,7 @@ function Relatorios() {
       );
       const categoryRows = [...categoryTotals].map(([categoryId, amount]) => ({
         Categoria:
-          s.categories.find((category) => category.id === categoryId)?.name ?? "Sem categoria",
+          categoryName(s.categories.find((category) => category.id === categoryId)),
         "Despesas (R$)": amount / 100,
         Participação: annualExpenseTotal
           ? `${((amount / annualExpenseTotal) * 100).toFixed(1)}%`

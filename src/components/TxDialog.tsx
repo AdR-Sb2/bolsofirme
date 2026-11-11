@@ -80,7 +80,8 @@ export function TxDialog({
     repeatMonthly: false,
     date: new Date().toISOString().slice(0, 10),
     referenceMonth: "",
-    categoryId: s.categories.find((category) => category.type === "despesa")?.id ?? "",
+    categoryId:
+      s.categories.find((category) => category.type === "despesa" && !category.archived)?.id ?? "",
     source: "b:" + (s.banks[0]?.id ?? ""),
     invoiceMonth: "",
     installments: "1",
@@ -92,7 +93,9 @@ export function TxDialog({
   const [removeReceipt, setRemoveReceipt] = useState(false);
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const categoriesForType = s.categories.filter((category) => category.type === f.type);
+  const categoriesForType = s.categories.filter(
+    (category) => category.type === f.type && !category.archived,
+  );
   const selectedCard = f.source.startsWith("c:")
     ? s.cards.find((card) => card.id === f.source.slice(2))
     : undefined;

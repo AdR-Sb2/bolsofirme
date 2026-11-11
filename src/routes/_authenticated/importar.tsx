@@ -65,13 +65,16 @@ function Importar() {
   const preview = rows.map((r) => {
     const date = parseDate(r[map.date]); const amount = parseAmount(r[map.amount]); const description = String(r[map.description] ?? "").trim();
     const catName = String(r[map.category] ?? "").trim().toLowerCase();
-    const matchedCategory = s.categories.find((category) => category.name.toLowerCase() === catName);
+    const matchedCategory = s.categories.find(
+      (category) => !category.archived && category.name.toLowerCase() === catName,
+    );
     const type: Tx["type"] = amount !== null && amount >= 0 && matchedCategory?.type === "receita"
       ? "receita"
       : "despesa";
-    const cat = matchedCategory?.type === type
-      ? matchedCategory
-      : s.categories.find((category) => category.type === type);
+    const cat =
+      matchedCategory?.type === type
+        ? matchedCategory
+        : s.categories.find((category) => !category.archived && category.type === type);
     let status: "válida" | "erro" | "duplicada" = "válida";
     if (!date || amount === null || !description) status = "erro";
     else if (s.txs.some((t) => t.date === date && t.amount === Math.abs(amount) && t.description === description)) status = "duplicada";

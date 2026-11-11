@@ -22,6 +22,7 @@ import { budgetStatus, getMonthlySpendingByCategory, type SpendingBudget } from 
 import {
   bankBalance,
   brl,
+  categoryName,
   fmtDate,
   invoiceSummary,
   isCashOutflow,
@@ -453,11 +454,13 @@ function Transacoes() {
           </select>
           <select className={sel} value={cat} onChange={(e) => setCat(e.target.value)}>
             <option value="">Categoria</option>
-            {s.categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.icon} {c.name}
-              </option>
-            ))}
+            {s.categories
+              .filter((category) => !category.archived)
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.icon} {c.name}
+                </option>
+              ))}
           </select>
           <Input
             type="number"
@@ -572,7 +575,7 @@ function Transacoes() {
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-semibold">{description}</div>
                   <div className="truncate text-xs text-muted-foreground">
-                    {!payment && c?.name ? `${c.name} • ` : ""}
+                    {!payment ? `${categoryName(c)} • ` : ""}
                     {src ? `${src} • ` : ""}
                     {pendingPayable ? (
                       <span className="text-amber-700 dark:text-amber-300">

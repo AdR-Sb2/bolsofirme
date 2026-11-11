@@ -17,6 +17,8 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   bankBalance,
   brl,
+  categoryIcon,
+  categoryName,
   fmtDate,
   formatCentsInput,
   formatCurrencyInput,
@@ -225,7 +227,7 @@ function A_pagar() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{transaction.description}</p>
                   <p className="text-xs text-muted-foreground">
-                    {category?.icon} {category?.name ?? "Sem categoria"} · vence{" "}
+                    {categoryIcon(category)} {categoryName(category)} · vence{" "}
                     {fmtDate(transaction.dueDate ?? transaction.date)} ·{" "}
                     {days < 0
                       ? `${Math.abs(days)} dia(s) de atraso`
